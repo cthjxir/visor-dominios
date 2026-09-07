@@ -1,4 +1,7 @@
 const btnRefresh = document.getElementById('btn-refresh');
+const btnPan = document.getElementById('btn-pan');
+const btnZoomOut = document.getElementById('btn-zoom-out');
+const btnZoomIn = document.getElementById('btn-zoom-in');
 
 // Un spinner que aparece y se va en 50 ms molesta mas que esperar: se retrasa
 // su aparicion y, si aparecio, se mantiene un minimo visible.
@@ -121,5 +124,12 @@ async function refreshAll() {
 document.addEventListener('DOMContentLoaded', () => {
   initServersUI(refreshAll);
   btnRefresh.addEventListener('click', refreshAll);
+  btnPan.addEventListener('click', () => {
+    const active = btnPan.getAttribute('aria-pressed') !== 'true';
+    btnPan.setAttribute('aria-pressed', String(active));
+    setPanMode(active);
+  });
+  btnZoomOut.addEventListener('click', zoomOut);
+  btnZoomIn.addEventListener('click', zoomIn);
   refreshAll();
 });

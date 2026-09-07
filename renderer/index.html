@@ -17,7 +17,7 @@
         <span class="brand__mark" aria-hidden="true"></span>
         <h1 class="brand__name">Visor de Dominios</h1>
       </div>
-      <p class="topbar__orient">Servidor <span aria-hidden="true">→</span> dominio <span aria-hidden="true">→</span> subdominio</p>
+      <p class="topbar__orient">Dirección de Tecnologías de la Información</p>
       <div class="topbar__actions">
         <button type="button" id="btn-refresh" class="btn">Actualizar</button>
         <button type="button" id="btn-add-server" class="btn btn--primary">Nuevo servidor</button>
@@ -26,6 +26,33 @@
 
     <div class="workspace">
       <aside class="rail" aria-labelledby="rail-title">
+        <section class="rail__section" aria-labelledby="rail-tools-title">
+          <h2 class="rail__title" id="rail-tools-title">Herramientas</h2>
+          <div class="rail__tools">
+            <button type="button" id="btn-pan" class="btn btn--icon" aria-pressed="false"
+                    aria-label="Desplazarse" title="Desplazarse">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 2v8m0 0-3-3m3 3 3-3M12 22v-8m0 0-3 3m3-3 3 3M2 12h8m0 0-3-3m3 3-3 3M22 12h-8m0 0 3-3m-3 3 3 3"/>
+              </svg>
+            </button>
+            <button type="button" id="btn-zoom-out" class="btn btn--icon" aria-label="Alejar" title="Alejar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="10.5" cy="10.5" r="6.5"/>
+                <path d="M21 21l-4.8-4.8M7.5 10.5h6"/>
+              </svg>
+            </button>
+            <button type="button" id="btn-zoom-in" class="btn btn--icon" aria-label="Acercar" title="Acercar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="10.5" cy="10.5" r="6.5"/>
+                <path d="M21 21l-4.8-4.8M10.5 7.5v6M7.5 10.5h6"/>
+              </svg>
+            </button>
+          </div>
+        </section>
+
         <h2 class="rail__title" id="rail-title">Servidores</h2>
         <ul class="rail__list" id="server-list"></ul>
       </aside>
