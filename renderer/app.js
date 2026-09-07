@@ -131,5 +131,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   btnZoomOut.addEventListener('click', zoomOut);
   btnZoomIn.addEventListener('click', zoomIn);
+  btnPan.setAttribute('aria-pressed', 'true');
+  setPanMode(true);
   refreshAll();
 });

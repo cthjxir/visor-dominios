@@ -66,15 +66,15 @@ function updateCameraFrustum() {
   draw();
 }
 
-function applyZoom(next) {
+function applyZoom(next, anchorX = viewW / 2, anchorY = viewH / 2) {
   const prevZoom = zoomLevel;
   zoomLevel = Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next)) * 100) / 100;
-  // Centrado en el medio del viewport, no en el cursor: conserva el punto que
-  // el usuario ya esta mirando en vez de saltar hacia donde puso el mouse.
-  const centerX = camX + viewW / (2 * prevZoom);
-  const centerY = camY + viewH / (2 * prevZoom);
-  camX = centerX - viewW / (2 * zoomLevel);
-  camY = centerY - viewH / (2 * zoomLevel);
+  // Conserva el punto del mundo bajo (anchorX, anchorY) del viewport: con los
+  // botones ese ancla es el centro; con la rueda + Ctrl/Cmd es el cursor.
+  const worldX = camX + anchorX / prevZoom;
+  const worldY = camY + anchorY / prevZoom;
+  camX = worldX - anchorX / zoomLevel;
+  camY = worldY - anchorY / zoomLevel;
   if (canvasBox) {
     for (const el of canvasBox.querySelectorAll('.bubble-label')) el.style.transform = `scale(${zoomLevel})`;
   }
@@ -547,6 +547,14 @@ function attachPointerHandlers(canvas) {
   // trackpad su unica forma de recorrer el lienzo sin activar "Desplazarse".
   canvas.addEventListener('wheel', (event) => {
     event.preventDefault();
+    // Ctrl/Cmd + rueda (y el pinch de trackpad, que llega como wheel+ctrlKey)
+    // hace zoom anclado al cursor; sin modificador, recorre el lienzo.
+    if (event.ctrlKey || event.metaKey) {
+      const rect = canvas.getBoundingClientRect();
+      const factor = Math.exp(-event.deltaY * 0.01);
+      applyZoom(zoomLevel * factor, event.clientX - rect.left, event.clientY - rect.top);
+      return;
+    }
     camX += event.deltaX / zoomLevel;
     camY += event.deltaY / zoomLevel;
     updateCameraFrustum();
