@@ -1,18 +1,22 @@
 import * as THREE from './vendor/three.module.min.js';
 import { CSS2DRenderer, CSS2DObject } from './vendor/CSS2DRenderer.js';
+import { relaxLayout, fanRadius } from './layout.mjs';
 
 const BACKEND_URL = 'http://127.0.0.1:57843';
 window.BACKEND_URL = BACKEND_URL;
 
-// v2: las posiciones guardadas por la version SVG se calcularon con un abanico de
-// radio fijo y sin limites de lienzo, asi que muchas quedaban solapadas o fuera de
-// vista. No hay forma de distinguirlas de un ajuste deliberado: se descartan una vez.
-const POSITIONS_KEY = 'visor-dominios:positions:v2';
+// v3: solo se guardan las posiciones que el usuario movio a mano. Guardar tambien
+// las calculadas hacia que cada sesion partiera del resultado de la anterior y la
+// separacion se acumulara: el mapa se dispersaba un poco mas cada vez que se abria.
+// Ahora el layout se recalcula al abrir (es determinista, sale igual) y lo unico
+// persistente es lo que el usuario coloco.
+const POSITIONS_KEY = 'visor-dominios:positions:v3';
+// Nodos que el usuario coloco a mano: la relajacion no los mueve.
+const PINNED_KEY = 'visor-dominios:pinned';
 // El tamano refuerza la jerarquia junto con la luminosidad, y le da al dominio
 // padre (el nombre mas largo) sitio para su etiqueta sin desbordar la esfera.
 const NODE_RADIUS = { parent: 52, error: 52, child: 40 };
 const MAX_NODE_RADIUS = 52;
-const CHILD_RADIUS = 150;
 const GRID_SPACING = 220;
 // El margen deja sitio para el abanico de hijos alrededor de un nodo de la
 // primera fila o columna, que si no se recorta contra el borde del lienzo.
@@ -24,6 +28,7 @@ function gridColumns(available) {
 }
 
 let positions = loadPositions();
+let pinned = loadPinned();
 let nodesById = new Map();
 let nodeMeshes = new Map();
 let lineElements = [];
@@ -36,9 +41,8 @@ let camera = null;
 let canvasBox = null;
 const raycaster = new THREE.Raycaster();
 
-// Se sanean al leer: una posicion guardada por una version anterior (o por una
-// ventana mas grande) puede caer fuera del lienzo, donde no hay scroll que la
-// recupere. Corregir solo al arrastrar dejaria el nodo inalcanzable para siempre.
+// Se sanean al leer: una posicion guardada por una ventana mas grande puede caer
+// fuera del lienzo, donde no hay scroll que la recupere.
 function loadPositions() {
   let stored;
   try {
@@ -47,23 +51,35 @@ function loadPositions() {
     return {};
   }
   const clean = {};
-  const taken = new Set();
   for (const [id, pos] of Object.entries(stored)) {
-    if (!Number.isFinite(pos?.x) || !Number.isFinite(pos?.y)) continue;
-    const fitted = clampPos(pos);
-    // Dos nodos en el mismo punto son indistinguibles y no hay forma de separarlos
-    // sin arrastrar a ciegas: se descarta el duplicado y el layout lo recoloca.
-    const key = `${Math.round(fitted.x)},${Math.round(fitted.y)}`;
-    if (taken.has(key)) continue;
-    taken.add(key);
-    clean[id] = fitted;
+    if (Number.isFinite(pos?.x) && Number.isFinite(pos?.y)) clean[id] = clampPos(pos);
   }
   return clean;
 }
 
+function loadPinned() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(PINNED_KEY)) || []);
+  } catch {
+    return new Set();
+  }
+}
+
+function savePinned() {
+  try {
+    localStorage.setItem(PINNED_KEY, JSON.stringify([...pinned]));
+  } catch {
+    // sin almacenamiento: los nodos fijados solo duran la sesion
+  }
+}
+
 function savePositions() {
   try {
-    localStorage.setItem(POSITIONS_KEY, JSON.stringify(positions));
+    const manual = {};
+    for (const id of pinned) {
+      if (positions[id]) manual[id] = positions[id];
+    }
+    localStorage.setItem(POSITIONS_KEY, JSON.stringify(manual));
   } catch {
     // sin almacenamiento disponible: solo se pierde la persistencia de posiciones
   }
@@ -158,14 +174,53 @@ function assignRootPositions(nodes, columns) {
   return roots;
 }
 
-// Un abanico de radio fijo apina los hijos en cuanto pasan de media docena: el
-// radio crece para que quepan sin solaparse (15 subdominios reales no caben en 150).
-// ponytail: el abanico de un dominio con muchos hijos (radio ~230 con 15) puede
-// invadir al vecino del grid, separado GRID_SPACING. Separarlos siempre dispersaria
-// el mapa tambien en el caso comun; la alternativa es un layout con repulsion.
-function fanRadius(count) {
-  const perNode = 2 * NODE_RADIUS.child + 16;
-  return Math.max(CHILD_RADIUS, (count * perNode) / (2 * Math.PI));
+const radiusOf = (node) => NODE_RADIUS[node.type] || MAX_NODE_RADIUS;
+
+// El abanico de un padre expandido: la distancia a la que se colocan sus hijos y
+// tambien el area que reclama frente a los demas dominios.
+function fanOf(node) {
+  if (!expandedParents.has(node.id) || node.childIds.length === 0) return 0;
+  return fanRadius(node.childIds.length, NODE_RADIUS.child);
+}
+
+// Reparte los nodos visibles hasta que ninguno se solape y guarda el resultado.
+// Es sincrono y determinista: el mapa aparece ya ordenado, sin animacion (una
+// escena que se reacomoda a la vista distrae mas de lo que informa).
+function relaxVisible() {
+  const graph = [];
+  for (const [id, node] of nodesById) {
+    if (!nodeMeshes.has(id) || !positions[id]) continue;
+    const fan = fanOf(node);
+    graph.push({
+      id,
+      x: positions[id].x,
+      y: positions[id].y,
+      r: radiusOf(node),
+      parentId: node.parentId && nodeMeshes.has(node.parentId) ? node.parentId : null,
+      fan,
+      spacing: fan ? fan + NODE_RADIUS.child : radiusOf(node),
+      fixed: pinned.has(id),
+    });
+  }
+  if (graph.length < 2) return;
+
+  relaxLayout(graph, { minX: 8, minY: 8 });
+  for (const item of graph) positions[item.id] = { x: item.x, y: item.y };
+  savePositions();
+}
+
+// Vuelca las posiciones en la escena: esferas, enlaces y tamano del lienzo.
+function applyPositions() {
+  for (const [id, mesh] of nodeMeshes) {
+    const pos = positions[id];
+    if (pos) mesh.position.set(pos.x, -pos.y, 0);
+  }
+  for (const link of lineElements) {
+    link.el.geometry.dispose();
+    link.el.geometry = linkGeometry(positions[link.from], positions[link.to]);
+  }
+  const extent = nodeExtent();
+  growCanvasTo(extent.x + MAX_NODE_RADIUS + 40, extent.y + MAX_NODE_RADIUS + 40);
 }
 
 // Un nodo arrastrado (o heredado de una ventana mas grande) no debe quedar fuera
@@ -182,7 +237,7 @@ function clampPos(pos) {
 function nodeExtent() {
   let x = 0;
   let y = 0;
-  for (const id of nodesById.keys()) {
+  for (const id of nodeMeshes.keys()) {
     const pos = positions[id];
     if (!pos) continue;
     x = Math.max(x, pos.x);
@@ -281,6 +336,8 @@ function renderBubbles(root, servers) {
     const node = nodesById.get(parentId);
     if (node) expandChildren(node);
   }
+  relaxVisible();
+  applyPositions();
   draw();
 }
 
@@ -392,6 +449,14 @@ function attachPointerHandlers(canvas) {
     drag = null;
     canvas.releasePointerCapture?.(event.pointerId);
     canvas.style.cursor = 'grab';
+    if (moved) {
+      pinned.add(node.id);
+      savePinned();
+      // El nodo movido no cede; los demas se apartan a su alrededor.
+      relaxVisible();
+      applyPositions();
+      draw();
+    }
     savePositions();
     if (!moved && node.type === 'parent' && node.childIds.length > 0) {
       toggleExpand(node);
@@ -424,13 +489,15 @@ function toggleExpand(node) {
     expandChildren(node);
   }
   mesh.material.emissiveIntensity = expandedParents.has(node.id) ? 0.35 : 0;
+  relaxVisible();
+  applyPositions();
   draw();
 }
 
 function expandChildren(parentNode) {
   const total = parentNode.childIds.length;
-  const fan = fanRadius(total);
-  const parentPos = ensureFanFits(parentNode, fan);
+  const fan = fanRadius(total, NODE_RADIUS.child);
+  const parentPos = positions[parentNode.id];
   const lineMaterial = new THREE.LineBasicMaterial({ color: cssColor('--color-node-link') });
   parentNode.childIds.forEach((childId, i) => {
     const childNode = nodesById.get(childId);
@@ -450,21 +517,6 @@ function expandChildren(parentNode) {
   savePositions();
 }
 
-// Si el padre esta pegado a un borde, su abanico caeria fuera del lienzo y los
-// hijos acabarian apilados en la misma esquina: se corre el padre lo justo.
-function ensureFanFits(parentNode, fan) {
-  const pos = positions[parentNode.id];
-  const margin = fan + NODE_RADIUS.child + 8;
-  const fitted = { x: Math.max(margin, pos.x), y: Math.max(margin, pos.y) };
-  if (fitted.x !== pos.x || fitted.y !== pos.y) {
-    positions[parentNode.id] = fitted;
-    nodeMeshes.get(parentNode.id)?.position.set(fitted.x, -fitted.y, 0);
-    updateLinesFor(parentNode.id);
-  }
-  growCanvasTo(fitted.x + margin, fitted.y + margin);
-  return fitted;
-}
-
 // El lienzo se agranda si el abanico lo desborda, para que haya scroll hasta el.
 function growCanvasTo(x, y) {
   const width = Math.max(parseFloat(canvasBox.style.width), Math.ceil(x));
@@ -481,6 +533,7 @@ function growCanvasTo(x, y) {
 
 function collapseChildren(parentNode) {
   for (const childId of parentNode.childIds) {
+    if (!pinned.has(childId)) delete positions[childId];
     const mesh = nodeMeshes.get(childId);
     if (mesh) {
       removeObject(mesh);
