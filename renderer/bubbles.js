@@ -306,35 +306,42 @@ function draw() {
   labelRenderer.render(scene, camera);
 }
 
-function renderBubbles(root, servers) {
-  nodesById = buildNodes(servers);
-  expandedParents = new Set([...expandedParents].filter((id) => nodesById.has(id)));
-
-  if (nodesById.size === 0) {
-    clearScene();
-    root.textContent = '';
-    root.appendChild(buildEmptyState());
-    return;
-  }
-
-  const availableWidth = root.clientWidth || 900;
-  const availableHeight = root.clientHeight || 600;
-  const columns = gridColumns(availableWidth);
-  const roots = assignRootPositions(nodesById, columns);
-  const extent = nodeExtent();
-  const width = Math.max(availableWidth, extent.x + GRID_MARGIN);
-  const height = Math.max(availableHeight, extent.y + GRID_MARGIN);
-
+// Vacia el lienzo y arranca una escena nueva y vacia, lista para recibir
+// servidores uno a uno via addServerBubble.
+function resetBubbles(root) {
+  nodesById = new Map();
+  expandedParents = new Set();
   clearScene();
   root.textContent = '';
-  setupScene(root, width, height);
+  setupScene(root, root.clientWidth || 900, root.clientHeight || 600);
+}
+
+function emptyBubbles(root) {
+  nodesById = new Map();
+  clearScene();
+  root.textContent = '';
+  root.appendChild(buildEmptyState());
+}
+
+// Agrega los dominios de un solo servidor al lienzo ya abierto por
+// resetBubbles: las burbujas existentes no se tocan, la relajacion solo
+// reacomoda lo necesario para que la burbuja nueva no se encime con ellas.
+function addServerBubble(root, server) {
+  const newNodes = buildNodes([server]);
+  if (newNodes.size === 0) return;
+  for (const [id, node] of newNodes) nodesById.set(id, node);
+  expandedParents = new Set([...expandedParents].filter((id) => nodesById.has(id)));
+
+  const width = canvasBox ? parseFloat(canvasBox.style.width) : (root.clientWidth || 900);
+  const columns = gridColumns(width);
+  const roots = assignRootPositions(nodesById, columns);
 
   for (const node of roots) {
-    renderNode(node);
+    if (!nodeMeshes.has(node.id)) renderNode(node);
   }
   for (const parentId of expandedParents) {
     const node = nodesById.get(parentId);
-    if (node) expandChildren(node);
+    if (node && newNodes.has(parentId)) expandChildren(node);
   }
   relaxVisible();
   applyPositions();
@@ -549,5 +556,7 @@ function collapseChildren(parentNode) {
   });
 }
 
-window.renderBubbles = renderBubbles;
+window.resetBubbles = resetBubbles;
+window.emptyBubbles = emptyBubbles;
+window.addServerBubble = addServerBubble;
 window.appendBreakable = appendBreakable;

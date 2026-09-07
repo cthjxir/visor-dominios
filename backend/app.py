@@ -85,27 +85,30 @@ def _test_connection(host, port, username, password):
         return jsonify({"ok": False, "error": str(exc)})
 
 
-@app.get("/domains")
-def get_domains():
-    result = []
-    for server in servers_store.list_servers():
-        full = servers_store.get_server_with_password(server["id"])
-        entry = {
-            "server_id": server["id"],
-            "alias": server["alias"],
-            "host": server["host"],
-            "error": None,
-            "groups": [],
-        }
-        try:
-            raw = virtualmin_client.list_domains(
-                full["host"], full["port"], full["username"], full["password"]
-            )
-            entry["groups"] = virtualmin_client.group_domains(raw)
-        except Exception as exc:
-            entry["error"] = str(exc)
-        result.append(entry)
-    return jsonify(result)
+@app.get("/servers/<server_id>/domains")
+def get_server_domains(server_id):
+    full = servers_store.get_server_with_password(server_id)
+    if full is None:
+        return jsonify({"error": "servidor no encontrado"}), 404
+    return jsonify(_domain_entry(full))
+
+
+def _domain_entry(server):
+    entry = {
+        "server_id": server["id"],
+        "alias": server["alias"],
+        "host": server["host"],
+        "error": None,
+        "groups": [],
+    }
+    try:
+        raw = virtualmin_client.list_domains(
+            server["host"], server["port"], server["username"], server["password"]
+        )
+        entry["groups"] = virtualmin_client.group_domains(raw)
+    except Exception as exc:
+        entry["error"] = str(exc)
+    return entry
 
 
 if __name__ == "__main__":

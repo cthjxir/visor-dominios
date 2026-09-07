@@ -84,19 +84,30 @@ async function refreshAll() {
   const endLoading = beginCanvasLoading(root);
   const list = document.getElementById('server-list');
   try {
-    // /servers responde al instante; /domains consulta cada Virtualmin y tarda.
-    // El panel se pinta con la primera y se completa con los conteos al llegar
-    // la segunda, en vez de esperar vacio a la mas lenta.
-    const domainsRequest = fetchJSON('/domains');
     const servers = await fetchJSON('/servers');
     renderServerList(list, servers, new Map());
-
-    const domains = await domainsRequest;
     await endLoading();
-    const domainsById = new Map(domains.map((entry) => [entry.server_id, entry]));
-    renderServerList(list, servers, domainsById);
-    renderBubbles(root, domains);
-    renderStatus(servers, domains);
+
+    if (servers.length === 0) {
+      emptyBubbles(root);
+      renderStatus(servers, []);
+      delete btnRefresh.dataset.state;
+      return;
+    }
+
+    // Un curl por servidor, uno a la vez: cada burbuja aparece en el lienzo en
+    // cuanto su servidor responde, en vez de esperar vacio al mas lento.
+    resetBubbles(root);
+    const domainsById = new Map();
+    const domains = [];
+    for (const server of servers) {
+      const entry = await fetchJSON(`/servers/${server.id}/domains`);
+      domains.push(entry);
+      domainsById.set(entry.server_id, entry);
+      addServerBubble(root, entry);
+      renderServerList(list, servers, domainsById);
+      renderStatus(servers, domains);
+    }
     delete btnRefresh.dataset.state;
   } catch (err) {
     await endLoading();
