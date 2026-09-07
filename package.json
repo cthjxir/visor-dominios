@@ -1,0 +1,26 @@
+{
+  "name": "visor-dominios",
+  "version": "1.0.0",
+  "description": "Visor de dominios Virtualmin",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:backend": "cd backend && pyinstaller --onedir --name visor-dominios-backend --distpath dist --workpath build --specpath . app.py",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "mx.gob.salamanca.visordominios",
+    "productName": "Visor Dominios",
+    "files": ["electron/**/*", "renderer/**/*", "package.json"],
+    "extraResources": [
+      { "from": "backend/dist/visor-dominios-backend", "to": "backend" }
+    ],
+    "mac": { "target": ["dmg", "zip"] },
+    "linux": { "target": ["AppImage", "deb"] },
+    "win": { "target": ["dir"] }
+  }
+}

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self'; connect-src http://127.0.0.1:57843;">
+<title>Visor de Dominios</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <h1>Visor de Dominios</h1>
+    <div class="actions">
+      <button id="btn-refresh">Actualizar</button>
+      <button id="btn-add-server">+ Servidor</button>
+    </div>
+  </header>
+
+  <nav id="server-bar" class="server-bar"></nav>
+
+  <main id="bubbles-root">Cargando...</main>
+
+  <dialog id="server-dialog">
+    <form id="server-form">
+      <h2 id="server-form-title">Nuevo servidor</h2>
+      <input type="hidden" name="id">
+      <label>Alias
+        <input name="alias" required placeholder="Cliente A">
+      </label>
+      <label>Host
+        <input name="host" required placeholder="panel.midominio.com">
+      </label>
+      <label>Puerto
+        <input name="port" type="number" value="10000" required>
+      </label>
+      <label>Usuario
+        <input name="username" required autocomplete="off">
+      </label>
+      <label>Password
+        <input name="password" type="password" autocomplete="new-password"
+               placeholder="(dejar vacio para no cambiarla)">
+      </label>
+      <p id="test-result" class="test-result"></p>
+      <div class="dialog-actions">
+        <button type="button" id="btn-test">Probar conexion</button>
+        <button type="button" id="btn-delete" class="danger" hidden>Eliminar</button>
+        <span class="spacer"></span>
+        <button type="button" id="btn-cancel">Cancelar</button>
+        <button type="submit">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="bubbles.js"></script>
+  <script src="servers-ui.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
