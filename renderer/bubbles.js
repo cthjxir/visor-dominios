@@ -39,26 +39,46 @@ let labelRenderer = null;
 let scene = null;
 let camera = null;
 let canvasBox = null;
+let resizeObserver = null;
 const raycaster = new THREE.Raycaster();
 
-// El zoom es un transform CSS sobre el div que envuelve canvas + etiquetas:
-// la escena y las posiciones guardadas siguen en pixeles reales, sin recalcular.
+// Lienzo infinito: la camara ortografica es una ventana movil sobre un mundo
+// sin bordes. camX/camY son la esquina superior-izquierda del mundo que se ve,
+// en pixeles reales (mismas unidades que las posiciones guardadas); el zoom
+// solo cambia cuanto mundo entra en esa ventana, no la escena en si.
+let camX = 0;
+let camY = 0;
+let viewW = 0;
+let viewH = 0;
+
 const ZOOM_MIN = 0.4;
 const ZOOM_MAX = 2;
 const ZOOM_STEP = 0.2;
 let zoomLevel = 1;
 
+function updateCameraFrustum() {
+  if (!camera) return;
+  camera.left = camX;
+  camera.right = camX + viewW / zoomLevel;
+  camera.top = -camY;
+  camera.bottom = -(camY + viewH / zoomLevel);
+  camera.updateProjectionMatrix();
+  draw();
+}
+
 function applyZoom(next) {
+  const prevZoom = zoomLevel;
   zoomLevel = Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next)) * 100) / 100;
-  if (!canvasBox) return;
-  const scrollEl = canvasBox.parentElement;
-  const prevZoom = parseFloat(canvasBox.dataset.zoom) || 1;
-  const centerX = (scrollEl.scrollLeft + scrollEl.clientWidth / 2) / prevZoom;
-  const centerY = (scrollEl.scrollTop + scrollEl.clientHeight / 2) / prevZoom;
-  canvasBox.style.transform = `scale(${zoomLevel})`;
-  canvasBox.dataset.zoom = String(zoomLevel);
-  scrollEl.scrollLeft = centerX * zoomLevel - scrollEl.clientWidth / 2;
-  scrollEl.scrollTop = centerY * zoomLevel - scrollEl.clientHeight / 2;
+  // Centrado en el medio del viewport, no en el cursor: conserva el punto que
+  // el usuario ya esta mirando en vez de saltar hacia donde puso el mouse.
+  const centerX = camX + viewW / (2 * prevZoom);
+  const centerY = camY + viewH / (2 * prevZoom);
+  camX = centerX - viewW / (2 * zoomLevel);
+  camY = centerY - viewH / (2 * zoomLevel);
+  if (canvasBox) {
+    for (const el of canvasBox.querySelectorAll('.bubble-label')) el.style.transform = `scale(${zoomLevel})`;
+  }
+  updateCameraFrustum();
 }
 
 function zoomIn() {
@@ -69,8 +89,6 @@ function zoomOut() {
   applyZoom(zoomLevel - ZOOM_STEP);
 }
 
-// Se sanean al leer: una posicion guardada por una ventana mas grande puede caer
-// fuera del lienzo, donde no hay scroll que la recupere.
 function loadPositions() {
   let stored;
   try {
@@ -80,7 +98,7 @@ function loadPositions() {
   }
   const clean = {};
   for (const [id, pos] of Object.entries(stored)) {
-    if (Number.isFinite(pos?.x) && Number.isFinite(pos?.y)) clean[id] = clampPos(pos);
+    if (Number.isFinite(pos?.x) && Number.isFinite(pos?.y)) clean[id] = pos;
   }
   return clean;
 }
@@ -232,7 +250,7 @@ function relaxVisible() {
   }
   if (graph.length < 2) return;
 
-  relaxLayout(graph, { minX: 8, minY: 8 });
+  relaxLayout(graph, { minX: -Infinity, minY: -Infinity });
   for (const item of graph) positions[item.id] = { x: item.x, y: item.y };
   savePositions();
 }
@@ -247,36 +265,13 @@ function applyPositions() {
     link.el.geometry.dispose();
     link.el.geometry = linkGeometry(positions[link.from], positions[link.to]);
   }
-  const extent = nodeExtent();
-  growCanvasTo(extent.x + MAX_NODE_RADIUS + 40, extent.y + MAX_NODE_RADIUS + 40);
-}
-
-// Un nodo arrastrado (o heredado de una ventana mas grande) no debe quedar fuera
-// del lienzo: este siempre se dimensiona para contener todas las posiciones vivas.
-// Ningun nodo puede salirse por el borde superior o izquierdo: alli no hay scroll
-// que lo recupere (por la derecha y abajo el lienzo crece, ver nodeExtent).
-function clampPos(pos) {
-  return {
-    x: Math.max(MAX_NODE_RADIUS + 8, pos.x),
-    y: Math.max(MAX_NODE_RADIUS + 8, pos.y),
-  };
-}
-
-function nodeExtent() {
-  let x = 0;
-  let y = 0;
-  for (const id of nodeMeshes.keys()) {
-    const pos = positions[id];
-    if (!pos) continue;
-    x = Math.max(x, pos.x);
-    y = Math.max(y, pos.y);
-  }
-  return { x, y };
 }
 
 // Escena ortografica en coordenadas de pantalla: x hacia la derecha, y hacia abajo
 // (se niega al pasar al mundo 3D), asi las posiciones guardadas siguen siendo pixeles.
 function setupScene(root, width, height) {
+  viewW = width;
+  viewH = height;
   if (!renderer) {
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -295,11 +290,6 @@ function setupScene(root, width, height) {
     camera.position.z = 1000;
   }
 
-  camera.left = 0;
-  camera.right = width;
-  camera.top = 0;
-  camera.bottom = -height;
-  camera.updateProjectionMatrix();
   renderer.setSize(width, height);
   labelRenderer.setSize(width, height);
 
@@ -307,11 +297,30 @@ function setupScene(root, width, height) {
   canvasBox.className = 'bubbles-canvas';
   canvasBox.style.width = `${width}px`;
   canvasBox.style.height = `${height}px`;
-  canvasBox.style.transform = `scale(${zoomLevel})`;
-  canvasBox.dataset.zoom = String(zoomLevel);
   canvasBox.append(renderer.domElement, labelRenderer.domElement);
   root.appendChild(canvasBox);
   attachPointerHandlers(renderer.domElement);
+  observeResize(root);
+  updateCameraFrustum();
+}
+
+// El div y el renderer siempre miden lo mismo que el panel visible: la camara,
+// no el DOM, es lo que se mueve por el mundo infinito.
+function observeResize(root) {
+  if (resizeObserver) return;
+  resizeObserver = new ResizeObserver(() => {
+    const width = root.clientWidth;
+    const height = root.clientHeight;
+    if (!width || !height || !canvasBox) return;
+    viewW = width;
+    viewH = height;
+    canvasBox.style.width = `${width}px`;
+    canvasBox.style.height = `${height}px`;
+    renderer.setSize(width, height);
+    labelRenderer.setSize(width, height);
+    updateCameraFrustum();
+  });
+  resizeObserver.observe(root);
 }
 
 function clearScene() {
@@ -362,8 +371,7 @@ function addServerBubble(root, server) {
   for (const [id, node] of newNodes) nodesById.set(id, node);
   expandedParents = new Set([...expandedParents].filter((id) => nodesById.has(id)));
 
-  const width = canvasBox ? parseFloat(canvasBox.style.width) : (root.clientWidth || 900);
-  const columns = gridColumns(width);
+  const columns = gridColumns(viewW || root.clientWidth || 900);
   const roots = assignRootPositions(nodesById, columns);
 
   for (const node of roots) {
@@ -411,9 +419,15 @@ function renderNode(node) {
   nodeMeshes.set(node.id, mesh);
 }
 
+// CSS2DRenderer centra y posiciona el elemento raiz por su cuenta cada frame
+// (pisando cualquier transform que le pongamos), por eso el zoom se aplica a
+// un hijo aparte: si no, las esferas (que si estan en la escena 3D) crecerian
+// con la camara pero el texto se quedaria siempre del mismo tamano.
 function buildLabel(node) {
+  const anchor = document.createElement('div');
   const label = document.createElement('div');
   label.className = `bubble-label bubble-${node.type}`;
+  label.style.transform = `scale(${zoomLevel})`;
   label.title = node.type === 'error'
     ? `${node.label}: ${node.sublabel}`
     : `${node.title || node.label} (${node.sublabel})`;
@@ -424,7 +438,8 @@ function buildLabel(node) {
   subEl.className = 'bubble-sub';
   subEl.textContent = node.type === 'error' ? 'sin conexión' : node.sublabel;
   label.append(nameEl, subEl);
-  return label;
+  anchor.appendChild(label);
+  return anchor;
 }
 
 // Un dominio se parte por sus puntos, no a mitad de palabra: "servicios." / "gob.mx".
@@ -446,9 +461,8 @@ function pickNode(canvas, event) {
   return hit ? hit.object : null;
 }
 
-// El lienzo crece hasta contener todo el mapa, asi que para recorrerlo con el
-// mouse (sin trackpad) hace falta arrastrar sobre el scroll del contenedor,
-// no sobre las esferas: de ahi el modo "Desplazarse" que se activa aparte.
+// Arrastrar una esfera siempre la mueve; el modo "Desplazarse" solo agrega
+// que arrastrar el fondo (donde antes no pasaba nada) recorra el lienzo.
 let panMode = false;
 
 function attachPointerHandlers(canvas) {
@@ -459,19 +473,17 @@ function attachPointerHandlers(canvas) {
   let pan = null;
 
   canvas.addEventListener('pointerdown', (event) => {
-    if (panMode) {
+    const mesh = pickNode(canvas, event);
+    if (!mesh) {
+      if (!panMode) return;
       pan = {
-        scrollEl: canvas.closest('.canvas'),
         startX: event.clientX, startY: event.clientY,
+        startCamX: camX, startCamY: camY,
       };
-      pan.startLeft = pan.scrollEl.scrollLeft;
-      pan.startTop = pan.scrollEl.scrollTop;
       canvas.setPointerCapture?.(event.pointerId);
       canvas.style.cursor = 'grabbing';
       return;
     }
-    const mesh = pickNode(canvas, event);
-    if (!mesh) return;
     const node = mesh.userData.node;
     drag = {
       mesh, node, moved: false,
@@ -483,8 +495,9 @@ function attachPointerHandlers(canvas) {
 
   canvas.addEventListener('pointermove', (event) => {
     if (pan) {
-      pan.scrollEl.scrollLeft = pan.startLeft - (event.clientX - pan.startX);
-      pan.scrollEl.scrollTop = pan.startTop - (event.clientY - pan.startY);
+      camX = pan.startCamX - (event.clientX - pan.startX) / zoomLevel;
+      camY = pan.startCamY - (event.clientY - pan.startY) / zoomLevel;
+      updateCameraFrustum();
       return;
     }
     if (!drag) {
@@ -494,7 +507,8 @@ function attachPointerHandlers(canvas) {
     const dx = event.clientX - drag.startX;
     const dy = event.clientY - drag.startY;
     if (Math.abs(dx) > 3 || Math.abs(dy) > 3) drag.moved = true;
-    const { x, y } = clampPos({ x: drag.origin.x + dx, y: drag.origin.y + dy });
+    const x = drag.origin.x + dx;
+    const y = drag.origin.y + dy;
     positions[drag.node.id] = { x, y };
     drag.mesh.position.set(x, -y, 0);
     updateLinesFor(drag.node.id);
@@ -527,6 +541,16 @@ function attachPointerHandlers(canvas) {
       toggleExpand(node);
     }
   });
+
+  // El scroll de trackpad ya no lo da el navegador (no hay contenedor con
+  // overflow): sin esto, quitar el scroll nativo le quita a quien usa
+  // trackpad su unica forma de recorrer el lienzo sin activar "Desplazarse".
+  canvas.addEventListener('wheel', (event) => {
+    event.preventDefault();
+    camX += event.deltaX / zoomLevel;
+    camY += event.deltaY / zoomLevel;
+    updateCameraFrustum();
+  }, { passive: false });
 }
 
 function setPanMode(on) {
@@ -584,20 +608,6 @@ function expandChildren(parentNode) {
     lineElements.push({ from: parentNode.id, to: childId, el: line });
   });
   savePositions();
-}
-
-// El lienzo se agranda si el abanico lo desborda, para que haya scroll hasta el.
-function growCanvasTo(x, y) {
-  const width = Math.max(parseFloat(canvasBox.style.width), Math.ceil(x));
-  const height = Math.max(parseFloat(canvasBox.style.height), Math.ceil(y));
-  if (width === parseFloat(canvasBox.style.width) && height === parseFloat(canvasBox.style.height)) return;
-  canvasBox.style.width = `${width}px`;
-  canvasBox.style.height = `${height}px`;
-  camera.right = width;
-  camera.bottom = -height;
-  camera.updateProjectionMatrix();
-  renderer.setSize(width, height);
-  labelRenderer.setSize(width, height);
 }
 
 function collapseChildren(parentNode) {
