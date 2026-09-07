@@ -77,10 +77,12 @@ body {
 }
 
 .brand__mark {
-  width: 9px;
-  height: 9px;
-  border-radius: 2px;
-  background: var(--color-accent);
+  width: 32px;
+  height: 32px;
+  padding: 4px;
+  border-radius: 7px;
+  background: #fff;
+  object-fit: contain;
 }
 
 .brand__name {
@@ -392,7 +394,7 @@ body {
 .canvas {
   position: relative;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   background:
     radial-gradient(
       110% 90% at 22% 0%,
@@ -405,7 +407,6 @@ body {
 .bubbles-canvas {
   position: relative;
   touch-action: none;
-  transform-origin: 0 0;
   animation: canvas-in var(--dur-long) var(--ease-out) both;
 }
 
@@ -427,7 +428,6 @@ body {
 }
 
 .bubble-label {
-  position: absolute;
   width: 5rem;
   height: 5rem;
   display: flex;
