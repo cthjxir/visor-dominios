@@ -1,5 +1,7 @@
 """Backend Flask local: expone servidores/dominios de Virtualmin a Electron."""
 
+import csv
+import io
 import logging
 
 from flask import Flask, jsonify, request
@@ -38,14 +40,38 @@ def get_servers():
 @app.post("/servers")
 def create_server():
     body = request.get_json()
-    server_id = servers_store.add_server(
-        alias=body["alias"],
-        host=body["host"],
-        port=int(body.get("port", 10000)),
-        username=body["username"],
-        password=body["password"],
-    )
+    try:
+        server_id = servers_store.add_server(
+            alias=body["alias"],
+            host=body["host"],
+            port=int(body.get("port", 10000)),
+            username=body["username"],
+            password=body["password"],
+        )
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 409
     return jsonify({"id": server_id}), 201
+
+
+@app.post("/servers/import")
+def import_servers():
+    # CSV con cabecera: alias,host,username,password[,port]. El cuerpo es el
+    # texto del fichero tal cual (text/csv), no JSON.
+    reader = csv.DictReader(io.StringIO(request.get_data(as_text=True)))
+    added, errors = 0, []
+    for line, row in enumerate(reader, start=2):
+        try:
+            servers_store.add_server(
+                alias=row["alias"].strip(),
+                host=row["host"].strip(),
+                port=int((row.get("port") or "").strip() or 10000),
+                username=row["username"].strip(),
+                password=(row.get("password") or "").strip(),
+            )
+            added += 1
+        except (KeyError, ValueError, AttributeError) as exc:
+            errors.append(f"fila {line}: {exc}")
+    return jsonify({"added": added, "errors": errors})
 
 
 @app.put("/servers/<server_id>")
