@@ -1,0 +1,60 @@
+name: Release
+
+# El backend (PyInstaller) no cruza de plataforma: cada instalador se compila
+# en un runner nativo del SO al que corresponde.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+
+  build:
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            package: npx electron-builder --mac --publish never
+            artifacts: |
+              dist/*.dmg
+              dist/*.zip
+          - os: ubuntu-latest
+            package: npx electron-builder --linux --publish never
+            artifacts: |
+              dist/*.AppImage
+              dist/*.deb
+          - os: windows-latest
+            package: |
+              npx electron-builder --win dir --publish never
+              $version = node -p "require('./package.json').version"
+              iscc "/DAppVersion=$version" "installer\windows.iss"
+            artifacts: dist/installer/visor-dominios-setup.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: pip install -r backend/requirements.txt pyinstaller
+      - run: npm run build:backend
+      - run: ${{ matrix.package }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ matrix.artifacts }}

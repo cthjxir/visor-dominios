@@ -3,6 +3,7 @@
   "version": "1.1.0",
   "description": "Visor de dominios Virtualmin",
   "main": "electron/main.js",
+  "author": "Jair <cj.rangelparra@icloud.com>",
   "scripts": {
     "start": "electron .",
     "build:backend": "cd backend && pyinstaller --onedir --name visor-dominios-backend --distpath dist --workpath build --specpath . app.py",
@@ -36,6 +37,9 @@
       "target": [
         "dmg",
         "zip"
+      ],
+      "arch": [
+        "arm64"
       ]
     },
     "linux": {
