@@ -121,8 +121,31 @@ async function refreshAll() {
   }
 }
 
+function initDomainSearch() {
+  const input = document.getElementById('domain-search');
+  const results = document.getElementById('search-results');
+  input.addEventListener('input', () => {
+    results.textContent = '';
+    for (const match of searchNodes(input.value)) {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'search-result';
+      appendBreakable(btn, match.name);
+      btn.addEventListener('click', () => {
+        focusNode(match.id);
+        input.value = match.name;
+        results.textContent = '';
+      });
+      li.appendChild(btn);
+      results.appendChild(li);
+    }
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initServersUI(refreshAll);
+  initDomainSearch();
   btnRefresh.addEventListener('click', refreshAll);
   btnPan.addEventListener('click', () => {
     const active = btnPan.getAttribute('aria-pressed') !== 'true';
