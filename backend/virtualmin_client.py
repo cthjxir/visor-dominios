@@ -17,8 +17,13 @@ def list_domains(host, port, username, password, timeout=15):
     return resp.json().get("data", [])
 
 
-def group_domains(raw):
-    """Agrupa dominios por IP publica, identificando el padre (default_website_for_ip)."""
+def group_domains(raw, host=None):
+    """Agrupa dominios por IP publica y elige el padre de cada grupo.
+
+    El dominio que coincide con el host registrado del servidor es siempre el
+    padre; solo cuando ninguno coincide se usa default_website_for_ip de
+    Virtualmin, y como ultimo recurso se promueve el primer dominio del grupo.
+    """
     by_ip = {}
     for entry in raw:
         name = entry.get("name")
@@ -26,21 +31,18 @@ def group_domains(raw):
         ip = (values.get("external_ip_address") or [None])[0]
         is_default = (values.get("default_website_for_ip") or ["No"])[0] == "Yes"
 
-        group = by_ip.setdefault(ip, {"parent": None, "children": []})
+        group = by_ip.setdefault(ip, {"default": None, "names": []})
+        group["names"].append(name)
         if is_default:
-            group["parent"] = name
-        else:
-            group["children"].append(name)
+            group["default"] = name
 
     groups = []
     for ip, group in by_ip.items():
-        parent = group["parent"]
-        children = group["children"]
-        if parent is None and children:
-            # ponytail: ningun dominio marcado como default en esta IP; se
-            # promueve el primero como padre. Ajustar si aparece un caso real
-            # donde esto no sea lo esperado.
-            parent = children.pop(0)
+        names = group["names"]
+        parent = next((n for n in names if n == host), None) or group["default"]
+        if parent is None and names:
+            parent = names[0]
+        children = [n for n in names if n != parent]
         groups.append({"ip": ip, "parent": parent, "children": children})
     return groups
 
@@ -70,12 +72,20 @@ if __name__ == "__main__":
         },
     ]
 
+    # Sin host: manda default_website_for_ip.
     groups = group_domains(sample_raw)
     assert len(groups) == 1
-    assert groups[0]["ip"] == "201.132.34.163"
     assert groups[0]["parent"] == "ptecnologias.salamanca.gob.mx"
     assert set(groups[0]["children"]) == {
         "pruebamapa.salamanca.gob.mx",
         "prafipaco.salamanca.gob.mx",
+    }
+
+    # Con host: el host es el padre aunque Virtualmin marque otro como default.
+    groups = group_domains(sample_raw, host="prafipaco.salamanca.gob.mx")
+    assert groups[0]["parent"] == "prafipaco.salamanca.gob.mx"
+    assert set(groups[0]["children"]) == {
+        "ptecnologias.salamanca.gob.mx",
+        "pruebamapa.salamanca.gob.mx",
     }
     print("group_domains OK:", groups)

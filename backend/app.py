@@ -137,7 +137,7 @@ def _domain_entry(server):
         raw = virtualmin_client.list_domains(
             server["host"], server["port"], server["username"], server["password"]
         )
-        entry["groups"] = virtualmin_client.group_domains(raw)
+        entry["groups"] = virtualmin_client.group_domains(raw, server["host"])
     except Exception as exc:
         entry["error"] = str(exc)
     return entry
