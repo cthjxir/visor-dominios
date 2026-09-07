@@ -58,6 +58,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1024,
     height: 720,
+    icon: path.join(__dirname, '..', 'build', 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -96,6 +97,9 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.whenReady().then(async () => {
+    if (!app.isPackaged && process.platform === 'darwin') {
+      app.dock.setIcon(path.join(__dirname, '..', 'build', 'icon.png'));
+    }
     serveRenderer();
     startBackend();
     try {

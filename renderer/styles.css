@@ -170,6 +170,12 @@ body {
   }
 }
 
+.btn[aria-pressed="true"] {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-accent-ink);
+}
+
 .btn--quiet {
   background: transparent;
   border-color: transparent;
@@ -256,6 +262,29 @@ body {
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--color-muted);
+}
+
+.rail__section {
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-md);
+  border-bottom: var(--rule-hair) solid var(--color-rule);
+}
+
+.rail__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+}
+
+.btn--icon {
+  flex: 0 0 auto;
+  width: var(--control-height);
+  padding: 0;
+}
+
+.btn--icon svg {
+  width: 1.15rem;
+  height: 1.15rem;
 }
 
 .rail__list {
@@ -376,6 +405,7 @@ body {
 .bubbles-canvas {
   position: relative;
   touch-action: none;
+  transform-origin: 0 0;
   animation: canvas-in var(--dur-long) var(--ease-out) both;
 }
 

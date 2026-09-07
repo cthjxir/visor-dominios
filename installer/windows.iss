@@ -1,10 +1,15 @@
 ; Instalador de Windows generado con Inno Setup (iscc).
 ; Requiere haber corrido antes: npm run build:backend && npx electron-builder --win dir
 ; que deja el build listo en dist\win-unpacked\
+; La version se puede pasar como /DAppVersion=X.Y.Z (asi lo hace el release
+; de GitHub Actions); si se corre iscc directo, usa el valor por defecto.
+#ifndef AppVersion
+#define AppVersion "1.1.2"
+#endif
 
 [Setup]
 AppName=Visor Dominios
-AppVersion=1.0.0
+AppVersion={#AppVersion}
 DefaultDirName={autopf}\Visor Dominios
 DefaultGroupName=Visor Dominios
 OutputDir=..\dist\installer

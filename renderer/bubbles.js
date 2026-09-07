@@ -41,6 +41,34 @@ let camera = null;
 let canvasBox = null;
 const raycaster = new THREE.Raycaster();
 
+// El zoom es un transform CSS sobre el div que envuelve canvas + etiquetas:
+// la escena y las posiciones guardadas siguen en pixeles reales, sin recalcular.
+const ZOOM_MIN = 0.4;
+const ZOOM_MAX = 2;
+const ZOOM_STEP = 0.2;
+let zoomLevel = 1;
+
+function applyZoom(next) {
+  zoomLevel = Math.round(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next)) * 100) / 100;
+  if (!canvasBox) return;
+  const scrollEl = canvasBox.parentElement;
+  const prevZoom = parseFloat(canvasBox.dataset.zoom) || 1;
+  const centerX = (scrollEl.scrollLeft + scrollEl.clientWidth / 2) / prevZoom;
+  const centerY = (scrollEl.scrollTop + scrollEl.clientHeight / 2) / prevZoom;
+  canvasBox.style.transform = `scale(${zoomLevel})`;
+  canvasBox.dataset.zoom = String(zoomLevel);
+  scrollEl.scrollLeft = centerX * zoomLevel - scrollEl.clientWidth / 2;
+  scrollEl.scrollTop = centerY * zoomLevel - scrollEl.clientHeight / 2;
+}
+
+function zoomIn() {
+  applyZoom(zoomLevel + ZOOM_STEP);
+}
+
+function zoomOut() {
+  applyZoom(zoomLevel - ZOOM_STEP);
+}
+
 // Se sanean al leer: una posicion guardada por una ventana mas grande puede caer
 // fuera del lienzo, donde no hay scroll que la recupere.
 function loadPositions() {
@@ -279,6 +307,8 @@ function setupScene(root, width, height) {
   canvasBox.className = 'bubbles-canvas';
   canvasBox.style.width = `${width}px`;
   canvasBox.style.height = `${height}px`;
+  canvasBox.style.transform = `scale(${zoomLevel})`;
+  canvasBox.dataset.zoom = String(zoomLevel);
   canvasBox.append(renderer.domElement, labelRenderer.domElement);
   root.appendChild(canvasBox);
   attachPointerHandlers(renderer.domElement);
@@ -416,13 +446,30 @@ function pickNode(canvas, event) {
   return hit ? hit.object : null;
 }
 
+// El lienzo crece hasta contener todo el mapa, asi que para recorrerlo con el
+// mouse (sin trackpad) hace falta arrastrar sobre el scroll del contenedor,
+// no sobre las esferas: de ahi el modo "Desplazarse" que se activa aparte.
+let panMode = false;
+
 function attachPointerHandlers(canvas) {
   if (canvas.dataset.handlersReady) return;
   canvas.dataset.handlersReady = '1';
 
   let drag = null;
+  let pan = null;
 
   canvas.addEventListener('pointerdown', (event) => {
+    if (panMode) {
+      pan = {
+        scrollEl: canvas.closest('.canvas'),
+        startX: event.clientX, startY: event.clientY,
+      };
+      pan.startLeft = pan.scrollEl.scrollLeft;
+      pan.startTop = pan.scrollEl.scrollTop;
+      canvas.setPointerCapture?.(event.pointerId);
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
     const mesh = pickNode(canvas, event);
     if (!mesh) return;
     const node = mesh.userData.node;
@@ -435,8 +482,13 @@ function attachPointerHandlers(canvas) {
   });
 
   canvas.addEventListener('pointermove', (event) => {
+    if (pan) {
+      pan.scrollEl.scrollLeft = pan.startLeft - (event.clientX - pan.startX);
+      pan.scrollEl.scrollTop = pan.startTop - (event.clientY - pan.startY);
+      return;
+    }
     if (!drag) {
-      canvas.style.cursor = pickNode(canvas, event) ? 'grab' : 'default';
+      canvas.style.cursor = panMode || pickNode(canvas, event) ? 'grab' : 'default';
       return;
     }
     const dx = event.clientX - drag.startX;
@@ -451,6 +503,12 @@ function attachPointerHandlers(canvas) {
   });
 
   canvas.addEventListener('pointerup', (event) => {
+    if (pan) {
+      pan = null;
+      canvas.releasePointerCapture?.(event.pointerId);
+      canvas.style.cursor = 'grab';
+      return;
+    }
     if (!drag) return;
     const { node, moved } = drag;
     drag = null;
@@ -469,6 +527,10 @@ function attachPointerHandlers(canvas) {
       toggleExpand(node);
     }
   });
+}
+
+function setPanMode(on) {
+  panMode = on;
 }
 
 function linkGeometry(fromPos, toPos) {
@@ -560,3 +622,6 @@ window.resetBubbles = resetBubbles;
 window.emptyBubbles = emptyBubbles;
 window.addServerBubble = addServerBubble;
 window.appendBreakable = appendBreakable;
+window.setPanMode = setPanMode;
+window.zoomIn = zoomIn;
+window.zoomOut = zoomOut;

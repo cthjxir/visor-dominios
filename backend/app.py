@@ -15,7 +15,13 @@ logging.getLogger("werkzeug").setLevel(logging.WARNING)
 def allow_local_cors(response):
     # La app renderer corre en origen file:// / null; sin este header el
     # navegador bloquea la lectura de la respuesta al backend en 127.0.0.1.
+    # Los otros dos headers son para el preflight OPTIONS que el navegador
+    # manda antes de todo POST/PUT/DELETE con body JSON (guardar, editar,
+    # borrar o probar un servidor): sin ellos el preflight se rechaza y la
+    # petición real nunca sale, viéndose como "Failed to fetch".
     response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     return response
 
 
