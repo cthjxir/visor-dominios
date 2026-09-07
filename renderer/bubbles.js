@@ -1,19 +1,34 @@
-const BACKEND_URL = 'http://127.0.0.1:57843';
+import * as THREE from './vendor/three.module.min.js';
+import { CSS2DRenderer, CSS2DObject } from './vendor/CSS2DRenderer.js';
 
-const SVG_NS = 'http://www.w3.org/2000/svg';
+const BACKEND_URL = 'http://127.0.0.1:57843';
+window.BACKEND_URL = BACKEND_URL;
+
 const POSITIONS_KEY = 'visor-dominios:positions';
 const NODE_RADIUS = 44;
-const CHILD_RADIUS = 130;
+const CHILD_RADIUS = 150;
 const GRID_SPACING = 220;
-const GRID_COLUMNS = 4;
+// El margen deja sitio para el abanico de hijos alrededor de un nodo de la
+// primera fila o columna, que si no se recorta contra el borde del lienzo.
+const GRID_MARGIN = 200;
+
+// El mapa debe caber en la ventana: las columnas salen del ancho real del lienzo.
+function gridColumns(available) {
+  return Math.max(2, Math.floor((available - GRID_MARGIN) / GRID_SPACING));
+}
 
 let positions = loadPositions();
 let nodesById = new Map();
-let nodeElements = new Map();
+let nodeMeshes = new Map();
 let lineElements = [];
 let expandedParents = new Set();
-let linksLayer = null;
-let nodesLayer = null;
+
+let renderer = null;
+let labelRenderer = null;
+let scene = null;
+let camera = null;
+let canvasBox = null;
+const raycaster = new THREE.Raycaster();
 
 function loadPositions() {
   try {
@@ -29,6 +44,32 @@ function savePositions() {
   } catch {
     // sin almacenamiento disponible: solo se pierde la persistencia de posiciones
   }
+}
+
+// THREE.Color no parsea oklch(). Se pinta un pixel con el valor CSS y se lee el
+// resultado: el navegador hace la conversion y el gamut-clamp a sRGB.
+const colorProbe = (() => {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1;
+  canvas.height = 1;
+  return canvas.getContext('2d', { willReadFrequently: true });
+})();
+
+function cssColor(name) {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  colorProbe.fillStyle = '#888888';
+  if (value) colorProbe.fillStyle = value;
+  colorProbe.fillRect(0, 0, 1, 1);
+  const [r, g, b] = colorProbe.getImageData(0, 0, 1, 1).data;
+  return new THREE.Color().setRGB(r / 255, g / 255, b / 255, THREE.SRGBColorSpace);
+}
+
+// La jerarquia se lee por luminosidad, no por matiz: el color queda libre
+// para el estado (error) y para la seleccion (acento).
+function nodeColor(type) {
+  if (type === 'error') return cssColor('--color-node-error');
+  if (type === 'child') return cssColor('--color-node-child');
+  return cssColor('--color-node-parent');
 }
 
 function buildNodes(servers) {
@@ -51,8 +92,8 @@ function buildNodes(servers) {
       for (const child of group.children) {
         const childId = `${server.server_id}:${child}`;
         nodes.set(childId, {
-          id: childId, type: 'child', label: child, sublabel: group.ip,
-          parentId, childIds: [],
+          id: childId, type: 'child', label: shortLabel(child, group.parent), title: child,
+          sublabel: group.ip, parentId, childIds: [],
         });
       }
     }
@@ -60,49 +101,134 @@ function buildNodes(servers) {
   return nodes;
 }
 
-function assignRootPositions(nodes) {
+// "correo.tecnologias.gob.mx" bajo "tecnologias.gob.mx" se lee mejor como "correo":
+// el nombre completo sigue disponible en el title de la etiqueta.
+function shortLabel(child, parent) {
+  const suffix = `.${parent}`;
+  return child.endsWith(suffix) ? child.slice(0, -suffix.length) : child;
+}
+
+function assignRootPositions(nodes, columns) {
   const roots = [...nodes.values()].filter((node) => node.type !== 'child');
   roots.forEach((node, i) => {
     if (!positions[node.id]) {
-      const col = i % GRID_COLUMNS;
-      const row = Math.floor(i / GRID_COLUMNS);
-      positions[node.id] = { x: 180 + col * GRID_SPACING, y: 170 + row * GRID_SPACING };
+      const col = i % columns;
+      const row = Math.floor(i / columns);
+      positions[node.id] = {
+        x: GRID_MARGIN + col * GRID_SPACING,
+        y: GRID_MARGIN + row * GRID_SPACING,
+      };
     }
   });
   savePositions();
   return roots;
 }
 
-function renderBubbles(root, servers) {
-  root.textContent = '';
-  nodesById = buildNodes(servers);
-  nodeElements = new Map();
+// Un nodo arrastrado (o heredado de una ventana mas grande) no debe quedar fuera
+// del lienzo: este siempre se dimensiona para contener todas las posiciones vivas.
+// Ningun nodo puede salirse por el borde superior o izquierdo: alli no hay scroll
+// que lo recupere (por la derecha y abajo el lienzo crece, ver nodeExtent).
+function clampPos(pos) {
+  return {
+    x: Math.max(NODE_RADIUS + 8, pos.x),
+    y: Math.max(NODE_RADIUS + 8, pos.y),
+  };
+}
+
+function nodeExtent() {
+  let x = 0;
+  let y = 0;
+  for (const id of nodesById.keys()) {
+    const pos = positions[id];
+    if (!pos) continue;
+    x = Math.max(x, pos.x);
+    y = Math.max(y, pos.y);
+  }
+  return { x, y };
+}
+
+// Escena ortografica en coordenadas de pantalla: x hacia la derecha, y hacia abajo
+// (se niega al pasar al mundo 3D), asi las posiciones guardadas siguen siendo pixeles.
+function setupScene(root, width, height) {
+  if (!renderer) {
+    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    labelRenderer = new CSS2DRenderer();
+    // El CSS2DRenderer no posiciona su contenedor: lo hace styles.css (.labels-layer).
+    labelRenderer.domElement.className = 'labels-layer';
+    scene = new THREE.Scene();
+    scene.add(new THREE.AmbientLight(0xffffff, 1.6));
+    const key = new THREE.DirectionalLight(0xffffff, 2.2);
+    key.position.set(-0.4, 0.8, 1);
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(0xffffff, 0.6);
+    fill.position.set(0.6, -0.5, 0.8);
+    scene.add(fill);
+    camera = new THREE.OrthographicCamera(0, 1, 0, -1, 1, 4000);
+    camera.position.z = 1000;
+  }
+
+  camera.left = 0;
+  camera.right = width;
+  camera.top = 0;
+  camera.bottom = -height;
+  camera.updateProjectionMatrix();
+  renderer.setSize(width, height);
+  labelRenderer.setSize(width, height);
+
+  canvasBox = document.createElement('div');
+  canvasBox.className = 'bubbles-canvas';
+  canvasBox.style.width = `${width}px`;
+  canvasBox.style.height = `${height}px`;
+  canvasBox.append(renderer.domElement, labelRenderer.domElement);
+  root.appendChild(canvasBox);
+  attachPointerHandlers(renderer.domElement);
+}
+
+function clearScene() {
+  for (const mesh of nodeMeshes.values()) removeObject(mesh);
+  for (const link of lineElements) removeObject(link.el);
+  nodeMeshes = new Map();
   lineElements = [];
+}
+
+function removeObject(object) {
+  object.removeFromParent();
+  object.geometry?.dispose();
+  object.material?.dispose();
+  for (const child of [...object.children]) {
+    if (child instanceof CSS2DObject) child.element.remove();
+    child.removeFromParent();
+  }
+}
+
+function draw() {
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+}
+
+function renderBubbles(root, servers) {
+  nodesById = buildNodes(servers);
   expandedParents = new Set([...expandedParents].filter((id) => nodesById.has(id)));
 
   if (nodesById.size === 0) {
-    root.textContent = 'No hay servidores registrados. Usa "+ Servidor" para agregar uno.';
+    clearScene();
+    root.textContent = '';
+    root.appendChild(buildEmptyState());
     return;
   }
 
-  const roots = assignRootPositions(nodesById);
-  const cols = Math.min(GRID_COLUMNS, roots.length);
-  const rows = Math.ceil(roots.length / GRID_COLUMNS);
-  const width = Math.max(900, cols * GRID_SPACING + 300);
-  const height = Math.max(600, rows * GRID_SPACING + 400);
+  const availableWidth = root.clientWidth || 900;
+  const availableHeight = root.clientHeight || 600;
+  const columns = gridColumns(availableWidth);
+  const roots = assignRootPositions(nodesById, columns);
+  const extent = nodeExtent();
+  const width = Math.max(availableWidth, extent.x + GRID_MARGIN);
+  const height = Math.max(availableHeight, extent.y + GRID_MARGIN);
 
-  const svgEl = document.createElementNS(SVG_NS, 'svg');
-  svgEl.setAttribute('width', width);
-  svgEl.setAttribute('height', height);
-  svgEl.classList.add('bubbles-canvas');
-
-  linksLayer = document.createElementNS(SVG_NS, 'g');
-  linksLayer.classList.add('links');
-  nodesLayer = document.createElementNS(SVG_NS, 'g');
-  nodesLayer.classList.add('nodes');
-  svgEl.appendChild(linksLayer);
-  svgEl.appendChild(nodesLayer);
-  root.appendChild(svgEl);
+  clearScene();
+  root.textContent = '';
+  setupScene(root, width, height);
 
   for (const node of roots) {
     renderNode(node);
@@ -111,121 +237,141 @@ function renderBubbles(root, servers) {
     const node = nodesById.get(parentId);
     if (node) expandChildren(node);
   }
+  draw();
 }
 
-function setNodeTransform(g, x, y) {
-  g.setAttribute('transform', `translate(${x},${y})`);
+function buildEmptyState() {
+  const wrap = document.createElement('div');
+  wrap.className = 'canvas__empty';
+  const title = document.createElement('p');
+  title.className = 'canvas__empty-title';
+  title.textContent = 'Todavía no hay nada que mapear';
+  const text = document.createElement('p');
+  text.className = 'canvas__empty-text';
+  text.textContent = 'Registra un servidor de Virtualmin con «Nuevo servidor» y sus dominios aparecerán aquí como un mapa que puedes reordenar.';
+  wrap.append(title, text);
+  return wrap;
 }
 
 function renderNode(node) {
   const pos = positions[node.id] || { x: 150, y: 150 };
-  const g = document.createElementNS(SVG_NS, 'g');
-  g.classList.add('node', `node-${node.type}`);
-  setNodeTransform(g, pos.x, pos.y);
+  const geometry = new THREE.SphereGeometry(NODE_RADIUS, 48, 32);
+  const material = new THREE.MeshStandardMaterial({
+    color: nodeColor(node.type),
+    roughness: 0.38,
+    metalness: 0.1,
+    emissive: cssColor('--color-accent'),
+    emissiveIntensity: expandedParents.has(node.id) ? 0.22 : 0,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.set(pos.x, -pos.y, 0);
+  mesh.userData.node = node;
+  scene.add(mesh);
 
-  const circle = document.createElementNS(SVG_NS, 'circle');
-  circle.setAttribute('r', NODE_RADIUS);
-  circle.classList.add('node-circle');
-  g.appendChild(circle);
+  mesh.add(new CSS2DObject(buildLabel(node)));
 
-  const title = document.createElementNS(SVG_NS, 'title');
-  title.textContent = node.type === 'error'
-    ? `${node.label}: ${node.sublabel}`
-    : `${node.label} (${node.sublabel})`;
-  g.appendChild(title);
-
-  const fo = document.createElementNS(SVG_NS, 'foreignObject');
-  fo.classList.add('bubble-fo');
-  fo.setAttribute('x', -NODE_RADIUS);
-  fo.setAttribute('y', -NODE_RADIUS);
-  fo.setAttribute('width', NODE_RADIUS * 2);
-  fo.setAttribute('height', NODE_RADIUS * 2);
-
-  const label = document.createElement('div');
-  label.className = 'bubble-label';
-  const nameEl = document.createElement('div');
-  nameEl.className = 'bubble-name';
-  nameEl.textContent = node.label;
-  const subEl = document.createElement('div');
-  subEl.className = 'bubble-sub';
-  subEl.textContent = node.type === 'error' ? 'Error (ver detalle)' : node.sublabel;
-  label.append(nameEl, subEl);
-  fo.appendChild(label);
-  g.appendChild(fo);
-
-  if (node.type === 'parent' && node.childIds.length > 0) {
-    g.classList.add('expandable');
-    g.classList.toggle('expanded', expandedParents.has(node.id));
-  }
-
-  nodesLayer.appendChild(g);
-  nodeElements.set(node.id, g);
-  attachDrag(g, node);
+  nodeMeshes.set(node.id, mesh);
 }
 
-function attachDrag(g, node) {
-  let dragging = false;
-  let moved = false;
-  let startX = 0;
-  let startY = 0;
-  let originX = 0;
-  let originY = 0;
+function buildLabel(node) {
+  const label = document.createElement('div');
+  label.className = `bubble-label bubble-${node.type}`;
+  label.title = node.type === 'error'
+    ? `${node.label}: ${node.sublabel}`
+    : `${node.title || node.label} (${node.sublabel})`;
+  const nameEl = document.createElement('div');
+  nameEl.className = 'bubble-name';
+  appendBreakable(nameEl, node.label);
+  const subEl = document.createElement('div');
+  subEl.className = 'bubble-sub';
+  subEl.textContent = node.type === 'error' ? 'sin conexión' : node.sublabel;
+  label.append(nameEl, subEl);
+  return label;
+}
 
-  g.addEventListener('pointerdown', (event) => {
-    dragging = true;
-    moved = false;
-    startX = event.clientX;
-    startY = event.clientY;
-    ({ x: originX, y: originY } = positions[node.id]);
-    try {
-      g.setPointerCapture(event.pointerId);
-    } catch {
-      // pointer sintetico (tests) o ya liberado: el arrastre sigue funcionando igual
-    }
+// Un dominio se parte por sus puntos, no a mitad de palabra: "servicios." / "gob.mx".
+function appendBreakable(el, text) {
+  const parts = text.split('.');
+  parts.forEach((part, i) => {
+    el.append(i < parts.length - 1 ? `${part}.` : part);
+    if (i < parts.length - 1) el.appendChild(document.createElement('wbr'));
+  });
+}
+
+function pickNode(canvas, event) {
+  const rect = canvas.getBoundingClientRect();
+  raycaster.setFromCamera(new THREE.Vector2(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1,
+  ), camera);
+  const hit = raycaster.intersectObjects([...nodeMeshes.values()], false)[0];
+  return hit ? hit.object : null;
+}
+
+function attachPointerHandlers(canvas) {
+  if (canvas.dataset.handlersReady) return;
+  canvas.dataset.handlersReady = '1';
+
+  let drag = null;
+
+  canvas.addEventListener('pointerdown', (event) => {
+    const mesh = pickNode(canvas, event);
+    if (!mesh) return;
+    const node = mesh.userData.node;
+    drag = {
+      mesh, node, moved: false,
+      startX: event.clientX, startY: event.clientY,
+      origin: { ...positions[node.id] },
+    };
+    canvas.setPointerCapture?.(event.pointerId);
   });
 
-  g.addEventListener('pointermove', (event) => {
-    if (!dragging) return;
-    const dx = event.clientX - startX;
-    const dy = event.clientY - startY;
-    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
-    const x = originX + dx;
-    const y = originY + dy;
-    positions[node.id] = { x, y };
-    setNodeTransform(g, x, y);
-    updateLinesFor(node.id);
+  canvas.addEventListener('pointermove', (event) => {
+    if (!drag) {
+      canvas.style.cursor = pickNode(canvas, event) ? 'grab' : 'default';
+      return;
+    }
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) drag.moved = true;
+    const { x, y } = clampPos({ x: drag.origin.x + dx, y: drag.origin.y + dy });
+    positions[drag.node.id] = { x, y };
+    drag.mesh.position.set(x, -y, 0);
+    updateLinesFor(drag.node.id);
+    canvas.style.cursor = 'grabbing';
+    draw();
   });
 
-  g.addEventListener('pointerup', (event) => {
-    if (!dragging) return;
-    dragging = false;
-    try {
-      g.releasePointerCapture(event.pointerId);
-    } catch {
-      // idem: sin efecto si nunca se capturo el puntero
-    }
+  canvas.addEventListener('pointerup', (event) => {
+    if (!drag) return;
+    const { node, moved } = drag;
+    drag = null;
+    canvas.releasePointerCapture?.(event.pointerId);
+    canvas.style.cursor = 'grab';
     savePositions();
     if (!moved && node.type === 'parent' && node.childIds.length > 0) {
-      toggleExpand(node, g);
+      toggleExpand(node);
     }
   });
+}
+
+function linkGeometry(fromPos, toPos) {
+  return new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(fromPos.x, -fromPos.y, -1),
+    new THREE.Vector3(toPos.x, -toPos.y, -1),
+  ]);
 }
 
 function updateLinesFor(nodeId) {
-  const pos = positions[nodeId];
   for (const link of lineElements) {
-    if (link.from === nodeId) {
-      link.el.setAttribute('x1', pos.x);
-      link.el.setAttribute('y1', pos.y);
-    }
-    if (link.to === nodeId) {
-      link.el.setAttribute('x2', pos.x);
-      link.el.setAttribute('y2', pos.y);
-    }
+    if (link.from !== nodeId && link.to !== nodeId) continue;
+    link.el.geometry.dispose();
+    link.el.geometry = linkGeometry(positions[link.from], positions[link.to]);
   }
 }
 
-function toggleExpand(node, g) {
+function toggleExpand(node) {
+  const mesh = nodeMeshes.get(node.id);
   if (expandedParents.has(node.id)) {
     expandedParents.delete(node.id);
     collapseChildren(node);
@@ -233,31 +379,27 @@ function toggleExpand(node, g) {
     expandedParents.add(node.id);
     expandChildren(node);
   }
-  g.classList.toggle('expanded', expandedParents.has(node.id));
+  mesh.material.emissiveIntensity = expandedParents.has(node.id) ? 0.35 : 0;
+  draw();
 }
 
 function expandChildren(parentNode) {
   const parentPos = positions[parentNode.id];
   const total = parentNode.childIds.length;
+  const lineMaterial = new THREE.LineBasicMaterial({ color: cssColor('--color-node-link') });
   parentNode.childIds.forEach((childId, i) => {
     const childNode = nodesById.get(childId);
     if (!positions[childId]) {
       const angle = (2 * Math.PI * i) / total - Math.PI / 2;
-      positions[childId] = {
+      positions[childId] = clampPos({
         x: parentPos.x + CHILD_RADIUS * Math.cos(angle),
         y: parentPos.y + CHILD_RADIUS * Math.sin(angle),
-      };
+      });
     }
     renderNode(childNode);
 
-    const line = document.createElementNS(SVG_NS, 'line');
-    line.classList.add('link');
-    const childPos = positions[childId];
-    line.setAttribute('x1', parentPos.x);
-    line.setAttribute('y1', parentPos.y);
-    line.setAttribute('x2', childPos.x);
-    line.setAttribute('y2', childPos.y);
-    linksLayer.appendChild(line);
+    const line = new THREE.Line(linkGeometry(parentPos, positions[childId]), lineMaterial);
+    scene.add(line);
     lineElements.push({ from: parentNode.id, to: childId, el: line });
   });
   savePositions();
@@ -265,17 +407,19 @@ function expandChildren(parentNode) {
 
 function collapseChildren(parentNode) {
   for (const childId of parentNode.childIds) {
-    const el = nodeElements.get(childId);
-    if (el) {
-      el.remove();
-      nodeElements.delete(childId);
+    const mesh = nodeMeshes.get(childId);
+    if (mesh) {
+      removeObject(mesh);
+      nodeMeshes.delete(childId);
     }
   }
   lineElements = lineElements.filter((link) => {
     if (link.from === parentNode.id) {
-      link.el.remove();
+      removeObject(link.el);
       return false;
     }
     return true;
   });
 }
+
+window.renderBubbles = renderBubbles;

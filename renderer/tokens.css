@@ -1,0 +1,123 @@
+/* Hallmark · tokens · genre: atmospheric · theme: Midnight (cool-anchor variant)
+ * anchor hue 250 · accent oklch(72% 0.15 245) · error hue 22 (reservado a estado)
+ * Estos tokens los consume tanto styles.css como bubbles.js (cssColor()).
+ */
+
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("vendor/fonts/geist-sans-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("vendor/fonts/geist-sans-latin-500-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("vendor/fonts/geist-sans-latin-700-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("vendor/fonts/geist-mono-latin-400-normal.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("vendor/fonts/geist-mono-latin-500-normal.woff2") format("woff2");
+}
+
+:root {
+  /* --- Superficies: en oscuro la elevacion sube por luminosidad, no por sombra --- */
+  --color-paper: oklch(13% 0.012 250);
+  --color-paper-2: oklch(17% 0.014 250);
+  --color-paper-3: oklch(21% 0.016 250);
+  --color-paper-4: oklch(27% 0.018 250);
+
+  /* --- Reglas y texto --- */
+  --color-rule: oklch(26% 0.012 250);
+  --color-rule-2: oklch(33% 0.014 250);
+  --color-muted: oklch(62% 0.014 250);
+  --color-neutral: oklch(75% 0.012 250);
+  --color-ink: oklch(95% 0.008 250);
+
+  /* --- Acento unico: interactivo, seleccion, foco --- */
+  --color-accent: oklch(72% 0.15 245);
+  --color-accent-dim: oklch(46% 0.11 245);
+  --color-accent-ink: oklch(15% 0.03 250);
+  --color-focus: oklch(80% 0.14 240);
+
+  /* --- Atmosfera del lienzo y velo del modal --- */
+  --color-bloom: oklch(19% 0.03 250);
+  --color-scrim: oklch(8% 0.01 250 / 0.7);
+
+  /* --- Estado (funcional, no decorativo) --- */
+  --color-error: oklch(62% 0.19 22);
+  --color-error-ink: oklch(97% 0.01 22);
+  --color-ok: oklch(74% 0.13 165);
+
+  /* --- Nodos del lienzo: jerarquia por luminosidad --- */
+  --color-node-parent: oklch(72% 0.035 250);
+  --color-node-child: oklch(42% 0.024 250);
+  --color-node-error: oklch(48% 0.17 22);
+  --color-node-link: oklch(40% 0.016 250);
+
+  /* --- Tipografia: 2 familias, mono con un solo rol (dato tecnico) --- */
+  --font-display: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-outlier: "Geist Mono", ui-monospace, monospace;
+
+  /* --- Escala 1.25 (tercera mayor) desde 16px --- */
+  --text-xs: 0.6875rem;
+  --text-sm: 0.8125rem;
+  --text-base: 1rem;
+  --text-md: 1.25rem;
+  --text-lg: 1.5625rem;
+
+  /* --- Espaciado 4pt --- */
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+
+  /* --- Geometria --- */
+  --radius-input: 6px;
+  --radius-card: 10px;
+  --radius-pill: 999px;
+  --control-height: 2.5rem;
+  --rule-hair: 1px;
+
+  /* --- Motion --- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-micro: 120ms;
+  --dur-short: 200ms;
+  --dur-long: 300ms;
+
+  /* --- Capas --- */
+  --z-base: 1;
+  --z-raised: 10;
+  --z-sticky: 200;
+  --z-modal: 400;
+}

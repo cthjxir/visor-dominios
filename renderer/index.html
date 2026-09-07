@@ -5,53 +5,99 @@
 <meta http-equiv="Content-Security-Policy"
       content="default-src 'self'; style-src 'self'; connect-src http://127.0.0.1:57843;">
 <title>Visor de Dominios</title>
+<link rel="preload" href="vendor/fonts/geist-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="vendor/fonts/geist-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header>
-    <h1>Visor de Dominios</h1>
-    <div class="actions">
-      <button id="btn-refresh">Actualizar</button>
-      <button id="btn-add-server">+ Servidor</button>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand__mark" aria-hidden="true"></span>
+        <h1 class="brand__name">Visor de Dominios</h1>
+      </div>
+      <p class="topbar__orient">Servidor <span aria-hidden="true">→</span> dominio <span aria-hidden="true">→</span> subdominio</p>
+      <div class="topbar__actions">
+        <button type="button" id="btn-refresh" class="btn">Actualizar</button>
+        <button type="button" id="btn-add-server" class="btn btn--primary">Nuevo servidor</button>
+      </div>
+    </header>
+
+    <div class="workspace">
+      <aside class="rail" aria-labelledby="rail-title">
+        <h2 class="rail__title" id="rail-title">Servidores</h2>
+        <ul class="rail__list" id="server-list"></ul>
+      </aside>
+
+      <main class="canvas" id="bubbles-root" aria-label="Mapa de dominios"></main>
     </div>
-  </header>
 
-  <nav id="server-bar" class="server-bar"></nav>
+    <footer class="statusbar">
+      <p class="statusbar__counts" id="status-counts">Cargando…</p>
+      <ul class="legend">
+        <li class="legend__item"><span class="legend__dot legend__dot--parent" aria-hidden="true"></span>Dominio</li>
+        <li class="legend__item"><span class="legend__dot legend__dot--child" aria-hidden="true"></span>Subdominio</li>
+        <li class="legend__item"><span class="legend__dot legend__dot--error" aria-hidden="true"></span>Sin conexión</li>
+      </ul>
+      <p class="statusbar__hint">Clic para desplegar <span aria-hidden="true">·</span> arrastra para ordenar</p>
+      <p class="statusbar__time" id="status-time"></p>
+    </footer>
+  </div>
 
-  <main id="bubbles-root">Cargando...</main>
-
-  <dialog id="server-dialog">
-    <form id="server-form">
-      <h2 id="server-form-title">Nuevo servidor</h2>
+  <dialog id="server-dialog" class="sheet" aria-labelledby="server-form-title">
+    <form id="server-form" class="form" novalidate>
+      <h2 class="sheet__title" id="server-form-title">Nuevo servidor</h2>
+      <p class="sheet__lede">Credenciales de Virtualmin. La contraseña se guarda en el llavero del sistema, nunca en texto plano.</p>
       <input type="hidden" name="id">
-      <label>Alias
-        <input name="alias" required placeholder="Cliente A">
-      </label>
-      <label>Host
-        <input name="host" required placeholder="panel.midominio.com">
-      </label>
-      <label>Puerto
-        <input name="port" type="number" value="10000" required>
-      </label>
-      <label>Usuario
-        <input name="username" required autocomplete="off">
-      </label>
-      <label>Password
-        <input name="password" type="password" autocomplete="new-password"
-               placeholder="(dejar vacio para no cambiarla)">
-      </label>
-      <p id="test-result" class="test-result"></p>
-      <div class="dialog-actions">
-        <button type="button" id="btn-test">Probar conexion</button>
-        <button type="button" id="btn-delete" class="danger" hidden>Eliminar</button>
-        <span class="spacer"></span>
-        <button type="button" id="btn-cancel">Cancelar</button>
-        <button type="submit">Guardar</button>
+
+      <div class="field">
+        <label class="field__label" for="f-alias">Alias</label>
+        <input class="field__input" id="f-alias" name="alias" required placeholder="Cliente A">
+        <p class="field__helper" id="f-alias-help">Cómo lo verás en el panel lateral.</p>
+      </div>
+
+      <div class="field-row">
+        <div class="field field--grow">
+          <label class="field__label" for="f-host">Host</label>
+          <input class="field__input field__input--mono" id="f-host" name="host" required
+                 placeholder="panel.midominio.com" autocomplete="off" spellcheck="false">
+          <p class="field__helper">Sin https:// ni ruta.</p>
+        </div>
+        <div class="field field--port">
+          <label class="field__label" for="f-port">Puerto</label>
+          <input class="field__input field__input--mono" id="f-port" name="port" type="number"
+                 value="10000" required inputmode="numeric">
+          <p class="field__helper">Virtualmin usa 10000.</p>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field field--grow">
+          <label class="field__label" for="f-username">Usuario</label>
+          <input class="field__input field__input--mono" id="f-username" name="username" required autocomplete="off">
+          <p class="field__helper">Cuenta con permiso de lectura de dominios.</p>
+        </div>
+        <div class="field field--grow">
+          <label class="field__label" for="f-password">Contraseña</label>
+          <input class="field__input" id="f-password" name="password" type="password" autocomplete="new-password">
+          <p class="field__helper" id="f-password-help">Déjala vacía para conservar la actual.</p>
+        </div>
+      </div>
+
+      <p class="test-result" id="test-result" role="status" aria-live="polite"></p>
+
+      <div class="sheet__actions">
+        <button type="button" id="btn-test" class="btn">Probar conexión</button>
+        <button type="button" id="btn-delete" class="btn btn--danger" hidden>Eliminar</button>
+        <span class="sheet__spacer"></span>
+        <button type="button" id="btn-cancel" class="btn btn--quiet">Cancelar</button>
+        <button type="submit" id="btn-save" class="btn btn--primary">Guardar</button>
       </div>
     </form>
   </dialog>
 
-  <script src="bubbles.js"></script>
+  <script type="module" src="bubbles.js"></script>
   <script src="servers-ui.js"></script>
   <script src="app.js"></script>
 </body>

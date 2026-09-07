@@ -6,21 +6,47 @@
   "scripts": {
     "start": "electron .",
     "build:backend": "cd backend && pyinstaller --onedir --name visor-dominios-backend --distpath dist --workpath build --specpath . app.py",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "vendor:fonts": "mkdir -p renderer/vendor/fonts && cp node_modules/@fontsource/geist-sans/files/geist-sans-latin-{400,500,700}-normal.woff2 node_modules/@fontsource/geist-mono/files/geist-mono-latin-{400,500}-normal.woff2 renderer/vendor/fonts/",
+    "vendor:three": "cp node_modules/three/build/three.module.min.js node_modules/three/build/three.core.min.js renderer/vendor/ && cp node_modules/three/examples/jsm/renderers/CSS2DRenderer.js renderer/vendor/ && node -e \"const fs=require('fs'),f='renderer/vendor/CSS2DRenderer.js';fs.writeFileSync(f,fs.readFileSync(f,'utf8').replace('from \\x27three\\x27;','from \\x27./three.module.min.js\\x27;'))\""
   },
   "devDependencies": {
+    "@fontsource/geist-mono": "^5.3.0",
+    "@fontsource/geist-sans": "^5.3.0",
     "electron": "^32.0.0",
-    "electron-builder": "^25.0.0"
+    "electron-builder": "^25.0.0",
+    "three": "^0.185.1"
   },
   "build": {
     "appId": "mx.gob.salamanca.visordominios",
     "productName": "Visor Dominios",
-    "files": ["electron/**/*", "renderer/**/*", "package.json"],
-    "extraResources": [
-      { "from": "backend/dist/visor-dominios-backend", "to": "backend" }
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "package.json"
     ],
-    "mac": { "target": ["dmg", "zip"] },
-    "linux": { "target": ["AppImage", "deb"] },
-    "win": { "target": ["dir"] }
+    "extraResources": [
+      {
+        "from": "backend/dist/visor-dominios-backend",
+        "to": "backend"
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    },
+    "win": {
+      "target": [
+        "dir"
+      ]
+    }
   }
 }

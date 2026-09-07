@@ -1,0 +1,14 @@
+[
+  {
+    "date": "2026-09-07",
+    "scope": "app",
+    "genre": "atmospheric",
+    "macrostructure": "Map / Diagram",
+    "theme": "Midnight (cool-anchor variant)",
+    "theme_axes": "dark / grotesk-sans / cool",
+    "nav": "N9 edge-aligned minimal",
+    "footer": "Ft2 inline single line",
+    "enrichment": "none",
+    "brief": "Visor de Dominios · app Electron de monitoreo de dominios Virtualmin, lienzo WebGL"
+  }
+]

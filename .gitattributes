@@ -1,2 +1,8 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Binarios: sin normalizacion de fin de linea (corrompe fuentes y bundles).
+*.woff2 binary
+*.woff binary
+renderer/vendor/three.module.min.js -text
+renderer/vendor/three.core.min.js -text

@@ -1,7 +1,10 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, protocol, net } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
+const { pathToFileURL } = require('url');
+
+const RENDERER_DIR = path.resolve(__dirname, '..', 'renderer');
 
 const BACKEND_PORT = 57843;
 const BACKEND_HEALTH_URL = `http://127.0.0.1:${BACKEND_PORT}/health`;
@@ -61,7 +64,7 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
-  mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  mainWindow.loadURL('app://visor/index.html');
 }
 
 function killBackend() {
@@ -71,10 +74,29 @@ function killBackend() {
   }
 }
 
+// Los modulos ES (three.js) no cargan bajo file://, asi que el renderer se sirve
+// desde un esquema propio con origen real.
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'app',
+  privileges: { standard: true, secure: true, supportFetchAPI: true },
+}]);
+
+function serveRenderer() {
+  protocol.handle('app', (request) => {
+    const requested = path.join(RENDERER_DIR, decodeURIComponent(new URL(request.url).pathname));
+    const resolved = path.resolve(requested);
+    if (resolved !== RENDERER_DIR && !resolved.startsWith(RENDERER_DIR + path.sep)) {
+      return new Response('Forbidden', { status: 403 });
+    }
+    return net.fetch(pathToFileURL(resolved).toString());
+  });
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.whenReady().then(async () => {
+    serveRenderer();
     startBackend();
     try {
       await waitForBackend();
