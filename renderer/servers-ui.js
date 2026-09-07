@@ -116,6 +116,28 @@ function initServersUI(onSaved) {
   document.getElementById('btn-add-server').addEventListener('click', openServerDialogForCreate);
   document.getElementById('btn-cancel').addEventListener('click', () => dialog.close());
 
+  const importFile = document.getElementById('import-file');
+  document.getElementById('btn-import-servers').addEventListener('click', () => importFile.click());
+  importFile.addEventListener('change', async () => {
+    const file = importFile.files[0];
+    if (!file) return;
+    try {
+      const res = await fetch(`${BACKEND_URL}/servers/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/csv' },
+        body: await file.text(),
+      });
+      const data = await res.json();
+      const msg = `${data.added} servidor(es) importado(s).`;
+      alert(data.errors.length ? `${msg}\n\nErrores:\n${data.errors.join('\n')}` : msg);
+      onSaved();
+    } catch (err) {
+      alert(`No se pudo importar: ${err.message}`);
+    } finally {
+      importFile.value = '';
+    }
+  });
+
   btnTest.addEventListener('click', async () => {
     btnTest.dataset.state = 'loading';
     setTestResult('Probando…');
@@ -171,11 +193,17 @@ function initServersUI(onSaved) {
         });
       } else {
         payload.password = payload.password || '';
-        await fetch(`${BACKEND_URL}/servers`, {
+        const res = await fetch(`${BACKEND_URL}/servers`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          btnSave.dataset.state = 'error';
+          setTestResult(data.error || `No se pudo guardar (${res.status}).`, 'error');
+          return;
+        }
       }
       dialog.close();
       onSaved();

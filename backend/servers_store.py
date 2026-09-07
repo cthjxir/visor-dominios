@@ -40,8 +40,21 @@ def list_servers():
     return _read_all()
 
 
+def find_duplicate(host, port, username):
+    for server in _read_all():
+        if (
+            server["host"].lower() == host.lower()
+            and int(server["port"]) == int(port)
+            and server["username"] == username
+        ):
+            return server["id"]
+    return None
+
+
 def add_server(alias, host, port, username, password):
     servers = _read_all()
+    if find_duplicate(host, port, username):
+        raise ValueError(f"ya existe un servidor para {username}@{host}:{port}")
     server_id = str(uuid.uuid4())
     servers.append(
         {"id": server_id, "alias": alias, "host": host, "port": port, "username": username}

@@ -1,0 +1,4 @@
+alias,host,username,password,port
+Servidor A,a.example.com,admin,clave1,10000
+Servidor B,b.example.com,root,clave2,
+Servidor C,c.example.com,admin,,10000
