@@ -383,6 +383,49 @@ body {
   color: var(--color-muted);
 }
 
+.rail__search-input {
+  width: 100%;
+}
+
+.rail__results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3xs);
+  margin: var(--space-2xs) 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.rail__results:empty {
+  display: none;
+}
+
+.search-result {
+  width: 100%;
+  padding: var(--space-2xs) var(--space-xs);
+  border: var(--rule-hair) solid transparent;
+  border-radius: var(--radius-input);
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-outlier);
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+@media (hover: hover) {
+  .search-result:hover {
+    background: var(--color-paper-2);
+  }
+}
+
+.search-result:active {
+  background: var(--color-paper-3);
+}
+
 .rail__empty {
   margin: 0 var(--space-xs);
   font-size: var(--text-sm);

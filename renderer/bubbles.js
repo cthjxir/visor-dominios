@@ -565,6 +565,48 @@ function setPanMode(on) {
   panMode = on;
 }
 
+// Devuelve los dominios/subdominios cuyo nombre completo contiene la consulta.
+function searchNodes(query) {
+  const q = query.trim().toLowerCase();
+  if (q.length < 2) return [];
+  const out = [];
+  for (const node of nodesById.values()) {
+    if (node.type === 'error') continue;
+    const name = node.title || node.label;
+    if (name.toLowerCase().includes(q)) out.push({ id: node.id, name, type: node.type });
+    if (out.length >= 25) break;
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// Lleva la camara al nodo (expandiendo su padre si hace falta) y lo resalta unos
+// segundos con el color de acento.
+let highlightTimer = null;
+function focusNode(id) {
+  const node = nodesById.get(id);
+  if (!node) return;
+  if (node.parentId && !expandedParents.has(node.parentId)) {
+    const parent = nodesById.get(node.parentId);
+    if (parent) toggleExpand(parent);
+  }
+  const pos = positions[id];
+  if (!pos) return;
+  camX = pos.x - viewW / zoomLevel / 2;
+  camY = pos.y - viewH / zoomLevel / 2;
+  updateCameraFrustum();
+
+  const mesh = nodeMeshes.get(id);
+  if (!mesh) return;
+  clearTimeout(highlightTimer);
+  const restore = expandedParents.has(id) ? 0.35 : 0;
+  mesh.material.emissiveIntensity = 0.9;
+  draw();
+  highlightTimer = setTimeout(() => {
+    mesh.material.emissiveIntensity = restore;
+    draw();
+  }, 2500);
+}
+
 function linkGeometry(fromPos, toPos) {
   return new THREE.BufferGeometry().setFromPoints([
     new THREE.Vector3(fromPos.x, -fromPos.y, -1),
@@ -643,3 +685,5 @@ window.appendBreakable = appendBreakable;
 window.setPanMode = setPanMode;
 window.zoomIn = zoomIn;
 window.zoomOut = zoomOut;
+window.searchNodes = searchNodes;
+window.focusNode = focusNode;
