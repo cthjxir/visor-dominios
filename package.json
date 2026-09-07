@@ -37,9 +37,6 @@
       "target": [
         "dmg",
         "zip"
-      ],
-      "arch": [
-        "arm64"
       ]
     },
     "linux": {
