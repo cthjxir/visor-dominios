@@ -4,7 +4,7 @@
 ; La version se puede pasar como /DAppVersion=X.Y.Z (asi lo hace el release
 ; de GitHub Actions); si se corre iscc directo, usa el valor por defecto.
 #ifndef AppVersion
-#define AppVersion "1.1.0"
+#define AppVersion "1.1.1"
 #endif
 
 [Setup]
