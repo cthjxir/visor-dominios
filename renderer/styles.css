@@ -309,6 +309,10 @@ body {
   background: var(--color-error);
 }
 
+.server--pending .server__state {
+  background: var(--color-rule-2);
+}
+
 .server__body {
   min-width: 0;
 }
@@ -328,6 +332,10 @@ body {
   overflow-wrap: anywhere;
 }
 
+.server__port {
+  white-space: nowrap;
+}
+
 .server__meta {
   display: block;
   font-family: var(--font-outlier);
@@ -338,6 +346,10 @@ body {
 
 .server--down .server__meta {
   color: var(--color-error);
+}
+
+.server--pending .server__meta {
+  color: var(--color-muted);
 }
 
 .rail__empty {
@@ -386,8 +398,8 @@ body {
 
 .bubble-label {
   position: absolute;
-  width: 5.5rem;
-  height: 5.5rem;
+  width: 5rem;
+  height: 5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -419,6 +431,13 @@ body {
   opacity: 0.85;
 }
 
+/* Los nodos grandes llevan etiqueta grande: el ancho sigue al de la esfera. */
+.bubble-parent,
+.bubble-error {
+  width: 6.5rem;
+  height: 6.5rem;
+}
+
 /* El padre es una superficie clara: su rotulo se invierte. */
 .bubble-parent {
   color: var(--color-accent-ink);
@@ -443,6 +462,22 @@ body {
   font-size: var(--text-md);
   font-weight: 700;
   letter-spacing: -0.02em;
+}
+
+.canvas__loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.canvas__spinner {
+  flex: none;
+  width: 0.875rem;
+  height: 0.875rem;
+  border: 2px solid var(--color-rule-2);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
 }
 
 .canvas__empty-text {
@@ -743,7 +778,9 @@ body {
     animation-name: backdrop-in;
   }
 
-  .btn[data-state="loading"]::after {
+  /* El spinner es movimiento funcional: sigue girando, solo mas lento. */
+  .btn[data-state="loading"]::after,
+  .canvas__spinner {
     animation-iteration-count: infinite !important;
   }
 }

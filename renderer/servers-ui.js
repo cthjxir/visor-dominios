@@ -29,13 +29,17 @@ function renderServerList(container, servers, domainsById) {
   }
 
   for (const server of servers) {
+    // Sin entrada todavia = consulta en curso; con entrada y error = caido.
+    const pending = !domainsById.has(server.id);
     const entry = domainsById.get(server.id);
     const counts = countDomains(entry);
 
     const item = document.createElement('li');
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = counts ? 'server' : 'server server--down';
+    button.className = 'server';
+    if (pending) button.classList.add('server--pending');
+    else if (!counts) button.classList.add('server--down');
     button.setAttribute('aria-label', `Editar ${server.alias}`);
 
     const state = document.createElement('span');
@@ -51,14 +55,24 @@ function renderServerList(container, servers, domainsById) {
 
     const host = document.createElement('span');
     host.className = 'server__host';
-    host.textContent = `${server.host}:${server.port}`;
+    appendBreakable(host, server.host);
+    // El 10000 es el puerto por defecto de Virtualmin: solo estorba mostrarlo.
+    if (Number(server.port) !== 10000) {
+      const port = document.createElement('span');
+      port.className = 'server__port';
+      port.textContent = `:${server.port}`;
+      host.appendChild(port);
+    }
 
     const meta = document.createElement('span');
     meta.className = 'server__meta';
-    meta.textContent = counts
-      ? `${plural(counts.parents, 'dominio', 'dominios')} · ${plural(counts.children, 'subdominio', 'subdominios')}`
-      : 'sin conexión';
-    if (!counts && entry?.error) meta.title = entry.error;
+    if (pending) meta.textContent = 'consultando…';
+    else if (counts) {
+      meta.textContent = `${plural(counts.parents, 'dominio', 'dominios')} · ${plural(counts.children, 'subdominio', 'subdominios')}`;
+    } else {
+      meta.textContent = 'sin conexión';
+      if (entry?.error) meta.title = entry.error;
+    }
 
     body.append(alias, host, meta);
     button.append(state, body);

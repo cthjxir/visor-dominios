@@ -1,5 +1,10 @@
 const btnRefresh = document.getElementById('btn-refresh');
 
+// Un spinner que aparece y se va en 50 ms molesta mas que esperar: se retrasa
+// su aparicion y, si aparecio, se mantiene un minimo visible.
+const LOADING_DELAY_MS = 150;
+const LOADING_MIN_MS = 300;
+
 async function fetchJSON(path, options) {
   const res = await fetch(`${BACKEND_URL}${path}`, options);
   return res.json();
@@ -27,6 +32,39 @@ function renderStatus(servers, domains) {
   })}`;
 }
 
+function buildCanvasLoading() {
+  const wrap = document.createElement('div');
+  wrap.className = 'canvas__empty canvas__loading';
+  const spinner = document.createElement('span');
+  spinner.className = 'canvas__spinner';
+  spinner.setAttribute('aria-hidden', 'true');
+  const text = document.createElement('p');
+  text.className = 'canvas__empty-text';
+  text.textContent = 'Consultando los servidores…';
+  wrap.append(spinner, text);
+  wrap.setAttribute('role', 'status');
+  return wrap;
+}
+
+// Solo se muestra si el lienzo aun no tiene mapa: borrar uno ya dibujado para
+// poner un spinner le quita al usuario la referencia que estaba mirando.
+function beginCanvasLoading(root) {
+  if (root.querySelector('.bubbles-canvas')) return () => {};
+  let shownAt = 0;
+  const timer = setTimeout(() => {
+    root.textContent = '';
+    root.appendChild(buildCanvasLoading());
+    shownAt = Date.now();
+  }, LOADING_DELAY_MS);
+
+  return async () => {
+    clearTimeout(timer);
+    if (!shownAt) return;
+    const remaining = LOADING_MIN_MS - (Date.now() - shownAt);
+    if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
+  };
+}
+
 function buildCanvasError(message) {
   const wrap = document.createElement('div');
   wrap.className = 'canvas__empty';
@@ -43,14 +81,25 @@ function buildCanvasError(message) {
 async function refreshAll() {
   const root = document.getElementById('bubbles-root');
   btnRefresh.dataset.state = 'loading';
+  const endLoading = beginCanvasLoading(root);
+  const list = document.getElementById('server-list');
   try {
-    const [servers, domains] = await Promise.all([fetchJSON('/servers'), fetchJSON('/domains')]);
+    // /servers responde al instante; /domains consulta cada Virtualmin y tarda.
+    // El panel se pinta con la primera y se completa con los conteos al llegar
+    // la segunda, en vez de esperar vacio a la mas lenta.
+    const domainsRequest = fetchJSON('/domains');
+    const servers = await fetchJSON('/servers');
+    renderServerList(list, servers, new Map());
+
+    const domains = await domainsRequest;
+    await endLoading();
     const domainsById = new Map(domains.map((entry) => [entry.server_id, entry]));
-    renderServerList(document.getElementById('server-list'), servers, domainsById);
+    renderServerList(list, servers, domainsById);
     renderBubbles(root, domains);
     renderStatus(servers, domains);
     delete btnRefresh.dataset.state;
   } catch (err) {
+    await endLoading();
     btnRefresh.dataset.state = 'error';
     document.getElementById('status-counts').textContent = 'Sin conexión con el backend';
     root.textContent = '';

@@ -4,8 +4,14 @@ import { CSS2DRenderer, CSS2DObject } from './vendor/CSS2DRenderer.js';
 const BACKEND_URL = 'http://127.0.0.1:57843';
 window.BACKEND_URL = BACKEND_URL;
 
-const POSITIONS_KEY = 'visor-dominios:positions';
-const NODE_RADIUS = 44;
+// v2: las posiciones guardadas por la version SVG se calcularon con un abanico de
+// radio fijo y sin limites de lienzo, asi que muchas quedaban solapadas o fuera de
+// vista. No hay forma de distinguirlas de un ajuste deliberado: se descartan una vez.
+const POSITIONS_KEY = 'visor-dominios:positions:v2';
+// El tamano refuerza la jerarquia junto con la luminosidad, y le da al dominio
+// padre (el nombre mas largo) sitio para su etiqueta sin desbordar la esfera.
+const NODE_RADIUS = { parent: 52, error: 52, child: 40 };
+const MAX_NODE_RADIUS = 52;
 const CHILD_RADIUS = 150;
 const GRID_SPACING = 220;
 // El margen deja sitio para el abanico de hijos alrededor de un nodo de la
@@ -30,12 +36,29 @@ let camera = null;
 let canvasBox = null;
 const raycaster = new THREE.Raycaster();
 
+// Se sanean al leer: una posicion guardada por una version anterior (o por una
+// ventana mas grande) puede caer fuera del lienzo, donde no hay scroll que la
+// recupere. Corregir solo al arrastrar dejaria el nodo inalcanzable para siempre.
 function loadPositions() {
+  let stored;
   try {
-    return JSON.parse(localStorage.getItem(POSITIONS_KEY)) || {};
+    stored = JSON.parse(localStorage.getItem(POSITIONS_KEY)) || {};
   } catch {
     return {};
   }
+  const clean = {};
+  const taken = new Set();
+  for (const [id, pos] of Object.entries(stored)) {
+    if (!Number.isFinite(pos?.x) || !Number.isFinite(pos?.y)) continue;
+    const fitted = clampPos(pos);
+    // Dos nodos en el mismo punto son indistinguibles y no hay forma de separarlos
+    // sin arrastrar a ciegas: se descarta el duplicado y el layout lo recoloca.
+    const key = `${Math.round(fitted.x)},${Math.round(fitted.y)}`;
+    if (taken.has(key)) continue;
+    taken.add(key);
+    clean[id] = fitted;
+  }
+  return clean;
 }
 
 function savePositions() {
@@ -101,11 +124,22 @@ function buildNodes(servers) {
   return nodes;
 }
 
-// "correo.tecnologias.gob.mx" bajo "tecnologias.gob.mx" se lee mejor como "correo":
-// el nombre completo sigue disponible en el title de la etiqueta.
+// La esfera muestra lo que distingue al subdominio, no lo que repite del padre:
+// bajo "tecnologias.gob.mx", "correo.tecnologias.gob.mx" se lee "correo"; y como
+// hermano de "ptecnologias.salamanca.gob.mx", "prafipaco.salamanca.gob.mx" se lee
+// "prafipaco". El nombre completo sigue en el title de la etiqueta.
 function shortLabel(child, parent) {
-  const suffix = `.${parent}`;
-  return child.endsWith(suffix) ? child.slice(0, -suffix.length) : child;
+  const childParts = child.split('.');
+  const parentParts = parent.split('.');
+  let common = 0;
+  while (
+    common < childParts.length - 1 &&
+    common < parentParts.length &&
+    childParts[childParts.length - 1 - common] === parentParts[parentParts.length - 1 - common]
+  ) {
+    common += 1;
+  }
+  return common === 0 ? child : childParts.slice(0, childParts.length - common).join('.');
 }
 
 function assignRootPositions(nodes, columns) {
@@ -124,14 +158,24 @@ function assignRootPositions(nodes, columns) {
   return roots;
 }
 
+// Un abanico de radio fijo apina los hijos en cuanto pasan de media docena: el
+// radio crece para que quepan sin solaparse (15 subdominios reales no caben en 150).
+// ponytail: el abanico de un dominio con muchos hijos (radio ~230 con 15) puede
+// invadir al vecino del grid, separado GRID_SPACING. Separarlos siempre dispersaria
+// el mapa tambien en el caso comun; la alternativa es un layout con repulsion.
+function fanRadius(count) {
+  const perNode = 2 * NODE_RADIUS.child + 16;
+  return Math.max(CHILD_RADIUS, (count * perNode) / (2 * Math.PI));
+}
+
 // Un nodo arrastrado (o heredado de una ventana mas grande) no debe quedar fuera
 // del lienzo: este siempre se dimensiona para contener todas las posiciones vivas.
 // Ningun nodo puede salirse por el borde superior o izquierdo: alli no hay scroll
 // que lo recupere (por la derecha y abajo el lienzo crece, ver nodeExtent).
 function clampPos(pos) {
   return {
-    x: Math.max(NODE_RADIUS + 8, pos.x),
-    y: Math.max(NODE_RADIUS + 8, pos.y),
+    x: Math.max(MAX_NODE_RADIUS + 8, pos.x),
+    y: Math.max(MAX_NODE_RADIUS + 8, pos.y),
   };
 }
 
@@ -255,7 +299,7 @@ function buildEmptyState() {
 
 function renderNode(node) {
   const pos = positions[node.id] || { x: 150, y: 150 };
-  const geometry = new THREE.SphereGeometry(NODE_RADIUS, 48, 32);
+  const geometry = new THREE.SphereGeometry(NODE_RADIUS[node.type] || MAX_NODE_RADIUS, 48, 32);
   const material = new THREE.MeshStandardMaterial({
     color: nodeColor(node.type),
     roughness: 0.38,
@@ -384,17 +428,18 @@ function toggleExpand(node) {
 }
 
 function expandChildren(parentNode) {
-  const parentPos = positions[parentNode.id];
   const total = parentNode.childIds.length;
+  const fan = fanRadius(total);
+  const parentPos = ensureFanFits(parentNode, fan);
   const lineMaterial = new THREE.LineBasicMaterial({ color: cssColor('--color-node-link') });
   parentNode.childIds.forEach((childId, i) => {
     const childNode = nodesById.get(childId);
     if (!positions[childId]) {
       const angle = (2 * Math.PI * i) / total - Math.PI / 2;
-      positions[childId] = clampPos({
-        x: parentPos.x + CHILD_RADIUS * Math.cos(angle),
-        y: parentPos.y + CHILD_RADIUS * Math.sin(angle),
-      });
+      positions[childId] = {
+        x: parentPos.x + fan * Math.cos(angle),
+        y: parentPos.y + fan * Math.sin(angle),
+      };
     }
     renderNode(childNode);
 
@@ -403,6 +448,35 @@ function expandChildren(parentNode) {
     lineElements.push({ from: parentNode.id, to: childId, el: line });
   });
   savePositions();
+}
+
+// Si el padre esta pegado a un borde, su abanico caeria fuera del lienzo y los
+// hijos acabarian apilados en la misma esquina: se corre el padre lo justo.
+function ensureFanFits(parentNode, fan) {
+  const pos = positions[parentNode.id];
+  const margin = fan + NODE_RADIUS.child + 8;
+  const fitted = { x: Math.max(margin, pos.x), y: Math.max(margin, pos.y) };
+  if (fitted.x !== pos.x || fitted.y !== pos.y) {
+    positions[parentNode.id] = fitted;
+    nodeMeshes.get(parentNode.id)?.position.set(fitted.x, -fitted.y, 0);
+    updateLinesFor(parentNode.id);
+  }
+  growCanvasTo(fitted.x + margin, fitted.y + margin);
+  return fitted;
+}
+
+// El lienzo se agranda si el abanico lo desborda, para que haya scroll hasta el.
+function growCanvasTo(x, y) {
+  const width = Math.max(parseFloat(canvasBox.style.width), Math.ceil(x));
+  const height = Math.max(parseFloat(canvasBox.style.height), Math.ceil(y));
+  if (width === parseFloat(canvasBox.style.width) && height === parseFloat(canvasBox.style.height)) return;
+  canvasBox.style.width = `${width}px`;
+  canvasBox.style.height = `${height}px`;
+  camera.right = width;
+  camera.bottom = -height;
+  camera.updateProjectionMatrix();
+  renderer.setSize(width, height);
+  labelRenderer.setSize(width, height);
 }
 
 function collapseChildren(parentNode) {
@@ -423,3 +497,4 @@ function collapseChildren(parentNode) {
 }
 
 window.renderBubbles = renderBubbles;
+window.appendBreakable = appendBreakable;
