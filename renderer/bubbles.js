@@ -52,8 +52,13 @@ let labelRenderer = null;
 let scene = null;
 let camera = null;
 let canvasBox = null;
+let listBox = null;
+let viewMode = 'map';
 let resizeObserver = null;
 const raycaster = new THREE.Raycaster();
+
+const CHEVRON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+  + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
 
 // Lienzo infinito: la camara ortografica es una ventana movil sobre un mundo
 // sin bordes. camX/camY son la esquina superior-izquierda del mundo que se ve,
@@ -177,7 +182,7 @@ function buildNodes(servers) {
       const id = `err:${server.server_id}`;
       nodes.set(id, {
         id, type: 'error', label: server.alias, sublabel: server.error,
-        parentId: null, childIds: [],
+        parentId: null, childIds: [], serverAlias: server.alias,
       });
       continue;
     }
@@ -186,12 +191,13 @@ function buildNodes(servers) {
       nodes.set(parentId, {
         id: parentId, type: 'parent', label: group.parent, sublabel: group.ip,
         parentId: null, childIds: group.children.map((child) => `${server.server_id}:${child}`),
+        serverAlias: server.alias,
       });
       for (const child of group.children) {
         const childId = `${server.server_id}:${child}`;
         nodes.set(childId, {
           id: childId, type: 'child', label: shortLabel(child, group.parent), title: child,
-          sublabel: group.ip, parentId, childIds: [],
+          sublabel: group.ip, parentId, childIds: [], serverAlias: server.alias,
         });
       }
     }
@@ -315,11 +321,20 @@ function setupScene(root, width, height) {
   canvasBox.className = 'bubbles-canvas';
   canvasBox.style.width = `${width}px`;
   canvasBox.style.height = `${height}px`;
+  canvasBox.hidden = viewMode !== 'map';
   canvasBox.append(renderer.domElement, labelRenderer.domElement);
   root.appendChild(canvasBox);
   attachPointerHandlers(renderer.domElement);
   observeResize(root);
   updateCameraFrustum();
+
+  // root.textContent='' arriba (resetBubbles) tambien se lleva la lista: se
+  // recrea aqui igual que canvasBox, mismo ciclo de vida.
+  listBox = document.createElement('div');
+  listBox.className = 'domain-list';
+  listBox.hidden = viewMode !== 'list';
+  root.appendChild(listBox);
+  if (viewMode === 'list') renderListView();
 }
 
 // El div y el renderer siempre miden lo mismo que el panel visible: la camara,
@@ -419,6 +434,7 @@ function addServerBubble(root, server) {
   relaxVisible();
   applyPositions();
   draw();
+  if (viewMode === 'list') renderListView();
 }
 
 function buildEmptyState() {
@@ -639,6 +655,9 @@ function focusNode(id) {
     const parent = nodesById.get(node.parentId);
     if (parent) toggleExpand(parent);
   }
+
+  if (viewMode === 'list') highlightListRow(id);
+
   const pos = positions[id];
   if (!pos) return;
   camX = pos.x - viewW / zoomLevel / 2;
@@ -677,6 +696,7 @@ function toggleExpand(node) {
   relaxVisible();
   applyPositions();
   draw();
+  if (viewMode === 'list') renderListView();
 }
 
 function expandChildren(parentNode) {
@@ -752,6 +772,127 @@ function collapseChildren(parentNode) {
   }
 }
 
+// Alterna entre el lienzo 3D y la tabla: el modelo (nodesById, expandedParents,
+// posiciones) es el mismo para las dos, solo cambia cual DOM esta a la vista.
+// La escena tres.js sigue viva (oculta) para no duplicar el estado.
+function setViewMode(mode) {
+  if (mode === viewMode) return;
+  viewMode = mode;
+  if (canvasBox) canvasBox.hidden = mode !== 'map';
+  if (listBox) listBox.hidden = mode !== 'list';
+  if (mode === 'list') renderListView();
+  else draw();
+  const root = canvasBox?.parentElement || listBox?.parentElement;
+  if (root) root.setAttribute('aria-label', mode === 'list' ? 'Lista de dominios' : 'Mapa de dominios');
+}
+
+// Misma jerarquia que el mapa (raices + hijos si el padre esta expandido),
+// solo que como tabla: sin necesidad de acomodar nada, cabe lo que haya.
+function renderListView() {
+  if (!listBox) return;
+  listBox.textContent = '';
+
+  const roots = [...nodesById.values()].filter((node) => node.type !== 'child');
+  if (roots.length === 0) {
+    listBox.appendChild(buildEmptyState());
+    return;
+  }
+
+  // Un grupo por servidor (mismo alias que se ve en "Servidores" en el rail),
+  // ordenados entre si y los dominios dentro de cada uno, ambos por nombre.
+  const groups = new Map();
+  for (const node of roots) {
+    const alias = node.serverAlias || '—';
+    if (!groups.has(alias)) groups.set(alias, []);
+    groups.get(alias).push(node);
+  }
+  const sortedAliases = [...groups.keys()].sort((a, b) => a.localeCompare(b));
+  for (const list of groups.values()) {
+    list.sort((a, b) => (a.title || a.label).localeCompare(b.title || b.label));
+  }
+
+  const table = document.createElement('div');
+  table.className = 'domain-table';
+
+  const head = document.createElement('div');
+  head.className = 'domain-table__head';
+  head.innerHTML = '<span></span><span></span><span>Dominio</span><span>IP</span><span>Subdominios</span>';
+  table.appendChild(head);
+
+  for (const alias of sortedAliases) {
+    const title = document.createElement('p');
+    title.className = 'domain-group-title';
+    title.textContent = `Servidor · ${alias}`;
+    table.appendChild(title);
+
+    for (const node of groups.get(alias)) {
+      table.appendChild(buildDomainRow(node));
+      if (node.type === 'parent' && expandedParents.has(node.id)) {
+        for (const childId of node.childIds) {
+          const child = nodesById.get(childId);
+          if (child) table.appendChild(buildDomainRow(child));
+        }
+      }
+    }
+  }
+  listBox.appendChild(table);
+}
+
+function buildDomainRow(node) {
+  const expandable = node.type === 'parent' && node.childIds.length > 0;
+  const row = document.createElement(expandable ? 'button' : 'div');
+  row.className = `domain-row domain-row--${node.type}`;
+  row.dataset.nodeId = node.id;
+  if (expandable) {
+    row.type = 'button';
+    row.addEventListener('click', () => toggleExpand(node));
+  }
+
+  const toggle = document.createElement('span');
+  toggle.className = 'domain-row__toggle';
+  if (expandable) {
+    toggle.innerHTML = CHEVRON_SVG;
+    if (expandedParents.has(node.id)) toggle.classList.add('is-open');
+  }
+  row.appendChild(toggle);
+
+  const dot = document.createElement('span');
+  dot.className = `domain-row__dot domain-row__dot--${node.type}`;
+  row.appendChild(dot);
+
+  const name = document.createElement('span');
+  name.className = 'domain-row__name';
+  appendBreakable(name, node.title || node.label);
+  row.appendChild(name);
+
+  const sub = document.createElement('span');
+  sub.className = 'domain-row__ip';
+  sub.textContent = node.sublabel;
+  row.appendChild(sub);
+
+  const badge = document.createElement('span');
+  if (expandable) {
+    badge.className = 'domain-row__badge';
+    badge.textContent = String(node.childIds.length);
+  }
+  row.appendChild(badge);
+
+  return row;
+}
+
+// Vuelve a pintar la tabla (por si el nodo estaba en un padre recien
+// expandido), lo centra en el scroll y lo resalta, como focusNode hace con
+// la camara y el brillo en el mapa.
+function highlightListRow(id) {
+  if (!listBox) return;
+  renderListView();
+  const row = listBox.querySelector(`[data-node-id="${id}"]`);
+  if (!row) return;
+  row.scrollIntoView({ block: 'center' });
+  row.classList.add('domain-row--highlight');
+  setTimeout(() => row.classList.remove('domain-row--highlight'), 2500);
+}
+
 window.resetBubbles = resetBubbles;
 window.emptyBubbles = emptyBubbles;
 window.addServerBubble = addServerBubble;
@@ -761,3 +902,4 @@ window.zoomIn = zoomIn;
 window.zoomOut = zoomOut;
 window.searchNodes = searchNodes;
 window.focusNode = focusNode;
+window.setViewMode = setViewMode;

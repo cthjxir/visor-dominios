@@ -559,6 +559,174 @@ body {
   color: var(--color-muted);
 }
 
+/* ---------- Vista de lista: mismo modelo del mapa (nodesById,
+   expandedParents), como tabla en vez de esferas ---------- */
+
+.domain-list {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  animation: canvas-in var(--dur-long) var(--ease-out) both;
+}
+
+.domain-table {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+}
+
+.domain-table__head {
+  display: grid;
+  grid-template-columns: 28px 20px minmax(0, 1fr) 140px 90px;
+  gap: var(--space-sm);
+  padding: 0 var(--space-xs) var(--space-2xs);
+  font-family: var(--font-outlier);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.domain-group-title {
+  margin: var(--space-md) 0 var(--space-2xs) var(--space-xs);
+  font-family: var(--font-outlier);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-neutral);
+}
+
+.domain-group-title:first-of-type {
+  margin-top: var(--space-2xs);
+}
+
+.domain-row {
+  display: grid;
+  grid-template-columns: 28px 20px minmax(0, 1fr) 140px 90px;
+  align-items: center;
+  gap: var(--space-sm);
+  width: 100%;
+  padding: var(--space-xs);
+  border: none;
+  border-radius: var(--radius-input);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  transition: background-color var(--dur-short) var(--ease-out);
+}
+
+button.domain-row {
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  button.domain-row:hover {
+    background: var(--color-paper-2);
+  }
+}
+
+button.domain-row:active {
+  background: var(--color-paper-3);
+}
+
+.domain-row__toggle {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+}
+
+.domain-row__toggle svg {
+  width: 14px;
+  height: 14px;
+  transition: transform var(--dur-short) var(--ease-out);
+}
+
+.domain-row__toggle.is-open svg {
+  transform: rotate(90deg);
+}
+
+.domain-row__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  justify-self: start;
+}
+
+.domain-row__dot--parent {
+  background: var(--color-node-parent);
+}
+
+.domain-row__dot--child {
+  background: var(--color-node-child);
+  box-shadow: inset 0 0 0 1px var(--color-rule-2);
+}
+
+.domain-row__dot--error {
+  background: var(--color-node-error);
+}
+
+.domain-row__name {
+  font-family: var(--font-outlier);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.domain-row--parent .domain-row__name {
+  font-weight: 500;
+}
+
+.domain-row--child .domain-row__name {
+  color: var(--color-neutral);
+}
+
+.domain-row--error .domain-row__name {
+  color: var(--color-node-error);
+  font-weight: 500;
+}
+
+.domain-row__ip {
+  font-family: var(--font-outlier);
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.domain-row--error .domain-row__ip {
+  color: var(--color-node-error);
+}
+
+.domain-row__badge {
+  justify-self: end;
+  padding: 2px var(--space-xs);
+  border: var(--rule-hair) solid var(--color-rule-2);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-outlier);
+  font-size: var(--text-xs);
+  color: var(--color-neutral);
+}
+
+/* Mismo destino (foco temporal en un nodo) que el brillo del mapa: aqui es un
+   flash de la fila en vez de emissiveIntensity en la esfera. */
+.domain-row--highlight {
+  background: var(--color-paper-3);
+  animation: row-flash var(--dur-long) var(--ease-out);
+}
+
+@keyframes row-flash {
+  from {
+    background: var(--color-accent-dim);
+  }
+}
+
 /* ---------- Barra de estado (Ft2: una sola linea) ---------- */
 
 .statusbar {

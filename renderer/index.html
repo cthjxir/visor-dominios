@@ -28,7 +28,28 @@
 
     <div class="workspace">
       <aside class="rail" aria-labelledby="rail-title">
-        <section class="rail__section" aria-labelledby="rail-tools-title">
+        <section class="rail__section" aria-labelledby="rail-view-title">
+          <h2 class="rail__title" id="rail-view-title">Vista</h2>
+          <div class="rail__tools">
+            <button type="button" id="btn-view-map" class="btn btn--icon" aria-pressed="true"
+                    aria-label="Mapa" title="Mapa">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="7" r="2.4"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="18" r="2.4"/>
+                <path d="M10.5 8.8 7.3 16M13.5 8.8l3.2 7.2"/>
+              </svg>
+            </button>
+            <button type="button" id="btn-view-list" class="btn btn--icon" aria-pressed="false"
+                    aria-label="Lista" title="Lista">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M4 6h16M4 12h16M4 18h10"/>
+              </svg>
+            </button>
+          </div>
+        </section>
+
+        <section class="rail__section" id="rail-tools-section" aria-labelledby="rail-tools-title">
           <h2 class="rail__title" id="rail-tools-title">Herramientas</h2>
           <div class="rail__tools">
             <button type="button" id="btn-pan" class="btn btn--icon" aria-pressed="true"
