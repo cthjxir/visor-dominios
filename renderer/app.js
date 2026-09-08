@@ -2,6 +2,9 @@ const btnRefresh = document.getElementById('btn-refresh');
 const btnPan = document.getElementById('btn-pan');
 const btnZoomOut = document.getElementById('btn-zoom-out');
 const btnZoomIn = document.getElementById('btn-zoom-in');
+const btnViewMap = document.getElementById('btn-view-map');
+const btnViewList = document.getElementById('btn-view-list');
+const railToolsSection = document.getElementById('rail-tools-section');
 
 // Un spinner que aparece y se va en 50 ms molesta mas que esperar: se retrasa
 // su aparicion y, si aparecio, se mantiene un minimo visible.
@@ -121,6 +124,14 @@ async function refreshAll() {
   }
 }
 
+// Herramientas (pan/zoom) es especifico del lienzo 3D: no aplica a una tabla.
+function selectView(mode) {
+  btnViewMap.setAttribute('aria-pressed', String(mode === 'map'));
+  btnViewList.setAttribute('aria-pressed', String(mode === 'list'));
+  railToolsSection.hidden = mode !== 'map';
+  setViewMode(mode);
+}
+
 function initDomainSearch() {
   const input = document.getElementById('domain-search');
   const results = document.getElementById('search-results');
@@ -156,5 +167,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnZoomIn.addEventListener('click', zoomIn);
   btnPan.setAttribute('aria-pressed', 'true');
   setPanMode(true);
+  btnViewMap.addEventListener('click', () => selectView('map'));
+  btnViewList.addEventListener('click', () => selectView('list'));
   refreshAll();
 });
