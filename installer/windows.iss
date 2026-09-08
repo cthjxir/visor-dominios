@@ -15,7 +15,7 @@ DefaultGroupName=Visor Dominios
 OutputDir=..\dist\installer
 OutputBaseFilename=visor-dominios-setup
 ArchitecturesInstallIn64BitMode=x64
-; SetupIconFile=..\build\icon.ico   ; descomentar cuando exista un icono real
+SetupIconFile=..\build\icon.ico
 
 [Files]
 Source: "..\dist\win-unpacked\*"; DestDir: "{app}"; Flags: recursesubdirs
