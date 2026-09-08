@@ -187,17 +187,19 @@ function buildNodes(servers) {
       continue;
     }
     for (const group of server.groups) {
+      const details = group.details || {};
       const parentId = `${server.server_id}:${group.parent}`;
       nodes.set(parentId, {
         id: parentId, type: 'parent', label: group.parent, sublabel: group.ip,
         parentId: null, childIds: group.children.map((child) => `${server.server_id}:${child}`),
-        serverAlias: server.alias,
+        serverAlias: server.alias, raw: details[group.parent],
       });
       for (const child of group.children) {
         const childId = `${server.server_id}:${child}`;
         nodes.set(childId, {
           id: childId, type: 'child', label: shortLabel(child, group.parent), title: child,
           sublabel: group.ip, parentId, childIds: [], serverAlias: server.alias,
+          raw: details[child],
         });
       }
     }
@@ -625,6 +627,13 @@ function attachPointerHandlers(canvas) {
     camY += event.deltaY / zoomLevel;
     updateCameraFrustum();
   }, { passive: false });
+
+  // El clic sencillo ya despliega/colapsa un padre; el detalle de un dominio
+  // (padre o hijo) va en el doble clic para no pisar ese gesto.
+  canvas.addEventListener('dblclick', (event) => {
+    const mesh = pickNode(canvas, event);
+    if (mesh) openDomainDetails(mesh.userData.node);
+  });
 }
 
 function setPanMode(on) {
@@ -846,6 +855,19 @@ function buildDomainRow(node) {
   if (expandable) {
     row.type = 'button';
     row.addEventListener('click', () => toggleExpand(node));
+    // El clic sencillo expande; el detalle va en doble clic, igual que en el mapa.
+    row.addEventListener('dblclick', () => openDomainDetails(node));
+  } else if (node.type !== 'error') {
+    // Sin hijos que desplegar, esta fila no hacia nada: el clic abre el detalle.
+    row.classList.add('domain-row--clickable');
+    row.tabIndex = 0;
+    row.setAttribute('role', 'button');
+    row.addEventListener('click', () => openDomainDetails(node));
+    row.addEventListener('keydown', (event) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+      openDomainDetails(node);
+    });
   }
 
   const toggle = document.createElement('span');
@@ -891,6 +913,72 @@ function highlightListRow(id) {
   row.scrollIntoView({ block: 'center' });
   row.classList.add('domain-row--highlight');
   setTimeout(() => row.classList.remove('domain-row--highlight'), 2500);
+}
+
+const domainDialog = document.getElementById('domain-dialog');
+const domainDialogTitle = document.getElementById('domain-dialog-title');
+const domainDialogMeta = document.getElementById('domain-dialog-meta');
+const domainDialogTable = document.getElementById('domain-dialog-table');
+const domainDialogSearch = document.getElementById('domain-dialog-search');
+const domainDialogNoMatch = document.getElementById('domain-dialog-no-match');
+document.getElementById('btn-domain-close')?.addEventListener('click', () => domainDialog.close());
+domainDialogSearch?.addEventListener('input', () => filterDomainDetails(domainDialogSearch.value));
+
+// El "detalle" es un paso directo de lo que Virtualmin devuelve por dominio
+// (raw), sin inventar campos: si el panel no reporta algo, aqui no aparece.
+function openDomainDetails(node) {
+  if (!domainDialog || node.type === 'error') return;
+  domainDialogTitle.textContent = node.title || node.label;
+  domainDialogMeta.textContent = `${node.type === 'parent' ? 'Dominio' : 'Subdominio'} · `
+    + `servidor ${node.serverAlias} · IP ${node.sublabel}`;
+
+  domainDialogTable.textContent = '';
+  domainDialogSearch.value = '';
+  domainDialogNoMatch.hidden = true;
+  const entries = Object.entries(node.raw || {}).filter(([key]) => key !== 'external_ip_address');
+  domainDialogSearch.hidden = entries.length === 0;
+  if (entries.length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'domain-detail__empty';
+    empty.textContent = 'Virtualmin no reportó datos adicionales para este dominio.';
+    domainDialogTable.appendChild(empty);
+  } else {
+    entries.sort(([a], [b]) => a.localeCompare(b));
+    for (const [key, value] of entries) {
+      const row = document.createElement('div');
+      row.className = 'domain-detail__row';
+      const dt = document.createElement('dt');
+      dt.textContent = humanizeKey(key);
+      const dd = document.createElement('dd');
+      dd.textContent = formatDetailValue(value);
+      row.append(dt, dd);
+      row.dataset.searchText = `${dt.textContent} ${dd.textContent}`.toLowerCase();
+      domainDialogTable.appendChild(row);
+    }
+  }
+  domainDialog.showModal();
+}
+
+// Filtra por coincidencia simple en el nombre o el valor del dato, sin volver
+// a pedirle nada al backend: todo ya esta en el DOM de esta apertura del modal.
+function filterDomainDetails(query) {
+  const q = query.trim().toLowerCase();
+  let visible = 0;
+  for (const row of domainDialogTable.querySelectorAll('.domain-detail__row')) {
+    const match = !q || row.dataset.searchText.includes(q);
+    row.hidden = !match;
+    if (match) visible += 1;
+  }
+  domainDialogNoMatch.hidden = visible > 0;
+}
+
+function humanizeKey(key) {
+  return key.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+}
+
+function formatDetailValue(value) {
+  if (Array.isArray(value)) return value.length ? value.join(', ') : '—';
+  return value === null || value === undefined || value === '' ? '—' : String(value);
 }
 
 window.resetBubbles = resetBubbles;

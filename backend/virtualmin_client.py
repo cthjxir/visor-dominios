@@ -31,8 +31,9 @@ def group_domains(raw, host=None):
         ip = (values.get("external_ip_address") or [None])[0]
         is_default = (values.get("default_website_for_ip") or ["No"])[0] == "Yes"
 
-        group = by_ip.setdefault(ip, {"default": None, "names": []})
+        group = by_ip.setdefault(ip, {"default": None, "names": [], "details": {}})
         group["names"].append(name)
+        group["details"][name] = values
         if is_default:
             group["default"] = name
 
@@ -43,7 +44,9 @@ def group_domains(raw, host=None):
         if parent is None and names:
             parent = names[0]
         children = [n for n in names if n != parent]
-        groups.append({"ip": ip, "parent": parent, "children": children})
+        groups.append({
+            "ip": ip, "parent": parent, "children": children, "details": group["details"],
+        })
     return groups
 
 
@@ -80,6 +83,9 @@ if __name__ == "__main__":
         "pruebamapa.salamanca.gob.mx",
         "prafipaco.salamanca.gob.mx",
     }
+    assert groups[0]["details"]["ptecnologias.salamanca.gob.mx"]["external_ip_address"] == [
+        "201.132.34.163",
+    ]
 
     # Con host: el host es el padre aunque Virtualmin marque otro como default.
     groups = group_domains(sample_raw, host="prafipaco.salamanca.gob.mx")

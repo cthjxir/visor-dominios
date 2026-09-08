@@ -156,6 +156,20 @@
     </form>
   </dialog>
 
+  <dialog id="domain-dialog" class="sheet" aria-labelledby="domain-dialog-title">
+    <h2 class="sheet__title" id="domain-dialog-title"></h2>
+    <p class="sheet__lede" id="domain-dialog-meta"></p>
+    <input type="search" id="domain-dialog-search" class="field__input field__input--mono domain-detail__search"
+           placeholder="Buscar un dato…" autocomplete="off" spellcheck="false"
+           aria-controls="domain-dialog-table">
+    <p class="domain-detail__empty" id="domain-dialog-no-match" hidden>Sin coincidencias.</p>
+    <dl class="domain-detail" id="domain-dialog-table"></dl>
+    <div class="sheet__actions">
+      <span class="sheet__spacer"></span>
+      <button type="button" id="btn-domain-close" class="btn btn--quiet">Cerrar</button>
+    </div>
+  </dialog>
+
   <script type="module" src="bubbles.js"></script>
   <script src="servers-ui.js"></script>
   <script src="app.js"></script>
