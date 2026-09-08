@@ -1,6 +1,19 @@
 import * as THREE from './vendor/three.module.min.js';
 import { CSS2DRenderer, CSS2DObject } from './vendor/CSS2DRenderer.js';
 import { relaxLayout, fanRadius } from './layout.mjs';
+import { animate, remove as removeTween, cubicBezier } from './vendor/anime.esm.js';
+
+// Mismo easing que --ease-out en tokens.css, para que las burbujas se sientan
+// animadas con el mismo lenguaje que el resto de la UI.
+const EASE_OUT = cubicBezier(0.16, 1, 0.3, 1);
+
+// anime.js anima cualquier objeto JS (no solo CSS/DOM), asi que puede mover
+// directamente mesh.position/scale de three.js. Como el lienzo solo redibuja
+// bajo demanda (no hay loop de render), cada tick de la animacion llama draw().
+function tween(targets, opts) {
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  return animate(targets, { ease: EASE_OUT, ...opts, duration: reduced ? 1 : opts.duration, onUpdate: draw });
+}
 
 const BACKEND_URL = 'http://127.0.0.1:57843';
 window.BACKEND_URL = BACKEND_URL;
@@ -230,8 +243,8 @@ function fanOf(node) {
 }
 
 // Reparte los nodos visibles hasta que ninguno se solape y guarda el resultado.
-// Es sincrono y determinista: el mapa aparece ya ordenado, sin animacion (una
-// escena que se reacomoda a la vista distrae mas de lo que informa).
+// El calculo es sincrono y determinista (el mapa siempre sale igual); el
+// deslizamiento hacia esas posiciones lo anima applyPositions().
 function relaxVisible() {
   const graph = [];
   for (const [id, node] of nodesById) {
@@ -255,15 +268,20 @@ function relaxVisible() {
   savePositions();
 }
 
-// Vuelca las posiciones en la escena: esferas, enlaces y tamano del lienzo.
+// Vuelca las posiciones en la escena. Una esfera que ya estaba en pantalla y
+// cambio de sitio (reacomodo tras soltar un arrastre o expandir/colapsar un
+// vecino) se desliza hacia el; una recien creada se coloca directo, no hay
+// "desde" que animar. Los enlaces se recalculan solos en cada draw() (ver
+// syncLines) a partir de la posicion real de las esferas, asi seguimos a las
+// que estan en pleno movimiento.
 function applyPositions() {
   for (const [id, mesh] of nodeMeshes) {
     const pos = positions[id];
-    if (pos) mesh.position.set(pos.x, -pos.y, 0);
-  }
-  for (const link of lineElements) {
-    link.el.geometry.dispose();
-    link.el.geometry = linkGeometry(positions[link.from], positions[link.to]);
+    if (!pos) continue;
+    const x = pos.x;
+    const y = -pos.y;
+    if (mesh.position.x === x && mesh.position.y === y) continue;
+    tween(mesh.position, { x, y, duration: 300 });
   }
 }
 
@@ -341,8 +359,25 @@ function removeObject(object) {
 }
 
 function draw() {
+  syncLines();
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);
+}
+
+// Reconstruye cada enlace desde la posicion real de sus dos esferas (no desde
+// el mapa de posiciones guardado), asi el enlace sigue a la esfera mientras
+// una animacion la mueve en vez de saltar directo al destino final.
+function syncLines() {
+  for (const link of lineElements) {
+    const from = nodeMeshes.get(link.from);
+    const to = nodeMeshes.get(link.to);
+    if (!from || !to) continue;
+    link.el.geometry.dispose();
+    link.el.geometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(from.position.x, from.position.y, -1),
+      new THREE.Vector3(to.position.x, to.position.y, -1),
+    ]);
+  }
 }
 
 // Vacia el lienzo y arranca una escena nueva y vacia, lista para recibir
@@ -375,7 +410,7 @@ function addServerBubble(root, server) {
   const roots = assignRootPositions(nodesById, columns);
 
   for (const node of roots) {
-    if (!nodeMeshes.has(node.id)) renderNode(node);
+    if (!nodeMeshes.has(node.id)) renderNode(node, { animateIn: true });
   }
   for (const parentId of expandedParents) {
     const node = nodesById.get(parentId);
@@ -399,7 +434,9 @@ function buildEmptyState() {
   return wrap;
 }
 
-function renderNode(node) {
+// animateIn: pop de entrada (scale+fade) para toda esfera nueva -al expandir
+// un padre o al llegar la raiz de un servidor recien agregado-.
+function renderNode(node, { animateIn = false } = {}) {
   const pos = positions[node.id] || { x: 150, y: 150 };
   const geometry = new THREE.SphereGeometry(NODE_RADIUS[node.type] || MAX_NODE_RADIUS, 48, 32);
   const material = new THREE.MeshStandardMaterial({
@@ -414,9 +451,16 @@ function renderNode(node) {
   mesh.userData.node = node;
   scene.add(mesh);
 
-  mesh.add(new CSS2DObject(buildLabel(node)));
-
+  const label = buildLabel(node);
+  mesh.add(new CSS2DObject(label));
   nodeMeshes.set(node.id, mesh);
+
+  if (animateIn) {
+    mesh.scale.setScalar(0.01);
+    label.style.opacity = '0';
+    tween(mesh.scale, { x: 1, y: 1, z: 1, duration: 220 });
+    tween(label, { opacity: 1, duration: 220 });
+  }
 }
 
 // CSS2DRenderer centra y posiciona el elemento raiz por su cuenta cada frame
@@ -510,10 +554,12 @@ function attachPointerHandlers(canvas) {
     const x = drag.origin.x + dx;
     const y = drag.origin.y + dy;
     positions[drag.node.id] = { x, y };
-    drag.mesh.position.set(x, -y, 0);
-    updateLinesFor(drag.node.id);
+    // Retarget: cada pointermove reemplaza el tween anterior por uno nuevo y
+    // corto hacia el cursor, asi la esfera "persigue" el puntero en vez de
+    // seguirlo pegada, sensacion de inercia sin fisica propia que mantener.
+    removeTween(drag.mesh.position);
+    tween(drag.mesh.position, { x, y: -y, duration: 120, ease: 'outQuad' });
     canvas.style.cursor = 'grabbing';
-    draw();
   });
 
   canvas.addEventListener('pointerup', (event) => {
@@ -524,14 +570,18 @@ function attachPointerHandlers(canvas) {
       return;
     }
     if (!drag) return;
-    const { node, moved } = drag;
+    const { node, mesh, moved } = drag;
     drag = null;
     canvas.releasePointerCapture?.(event.pointerId);
     canvas.style.cursor = 'grab';
     if (moved) {
+      // La esfera soltada se queda exactamente donde el usuario la dejo (sin
+      // terminar de "perseguir" el cursor); las demas se apartan a su alrededor.
+      removeTween(mesh.position);
+      const dropped = positions[node.id];
+      mesh.position.set(dropped.x, -dropped.y, 0);
       pinned.add(node.id);
       savePinned();
-      // El nodo movido no cede; los demas se apartan a su alrededor.
       relaxVisible();
       applyPositions();
       draw();
@@ -614,14 +664,6 @@ function linkGeometry(fromPos, toPos) {
   ]);
 }
 
-function updateLinesFor(nodeId) {
-  for (const link of lineElements) {
-    if (link.from !== nodeId && link.to !== nodeId) continue;
-    link.el.geometry.dispose();
-    link.el.geometry = linkGeometry(positions[link.from], positions[link.to]);
-  }
-}
-
 function toggleExpand(node) {
   const mesh = nodeMeshes.get(node.id);
   if (expandedParents.has(node.id)) {
@@ -641,7 +683,9 @@ function expandChildren(parentNode) {
   const total = parentNode.childIds.length;
   const fan = fanRadius(total, NODE_RADIUS.child);
   const parentPos = positions[parentNode.id];
-  const lineMaterial = new THREE.LineBasicMaterial({ color: cssColor('--color-node-link') });
+  // transparent: true desde el inicio (no al colapsar) porque three.js arma el
+  // modo de blending del material una sola vez, al crearlo.
+  const lineMaterial = new THREE.LineBasicMaterial({ color: cssColor('--color-node-link'), transparent: true });
   parentNode.childIds.forEach((childId, i) => {
     const childNode = nodesById.get(childId);
     if (!positions[childId]) {
@@ -651,7 +695,7 @@ function expandChildren(parentNode) {
         y: parentPos.y + fan * Math.sin(angle),
       };
     }
-    renderNode(childNode);
+    renderNode(childNode, { animateIn: true });
 
     const line = new THREE.Line(linkGeometry(parentPos, positions[childId]), lineMaterial);
     scene.add(line);
@@ -660,22 +704,52 @@ function expandChildren(parentNode) {
   savePositions();
 }
 
+// Encoge y desvanece a cada hijo (esfera, etiqueta y enlace al padre) antes
+// de sacarlos de la escena; se quitan recien al terminar (mientras tanto
+// syncLines sigue dibujando el enlace desde la esfera, que ya se achica).
 function collapseChildren(parentNode) {
-  for (const childId of parentNode.childIds) {
-    if (!pinned.has(childId)) delete positions[childId];
-    const mesh = nodeMeshes.get(childId);
-    if (mesh) {
-      removeObject(mesh);
-      nodeMeshes.delete(childId);
+  const finishRemoval = () => {
+    for (const childId of parentNode.childIds) {
+      if (!pinned.has(childId)) delete positions[childId];
     }
-  }
-  lineElements = lineElements.filter((link) => {
-    if (link.from === parentNode.id) {
+    lineElements = lineElements.filter((link) => {
+      if (link.from !== parentNode.id) return true;
       removeObject(link.el);
       return false;
-    }
-    return true;
-  });
+    });
+    // Los hijos ya se encogieron y se fueron: recien ahora los demas nodos
+    // pueden deslizarse a llenar el hueco que dejaron.
+    relaxVisible();
+    applyPositions();
+    draw();
+  };
+
+  const meshes = parentNode.childIds.map((id) => nodeMeshes.get(id)).filter(Boolean);
+  if (meshes.length === 0) {
+    finishRemoval();
+    return;
+  }
+
+  // Todos los enlaces de un mismo padre comparten material (ver
+  // expandChildren): un solo tween desvanece a todos a la vez.
+  const lineMaterial = lineElements.find((link) => link.from === parentNode.id)?.el.material;
+  if (lineMaterial) tween(lineMaterial, { opacity: 0, duration: 200 });
+
+  let pending = meshes.length;
+  for (const mesh of meshes) {
+    const childId = mesh.userData.node.id;
+    const label = mesh.children.find((child) => child instanceof CSS2DObject)?.element;
+    if (label) tween(label, { opacity: 0, duration: 160 });
+    tween(mesh.scale, {
+      x: 0.01, y: 0.01, z: 0.01, duration: 200,
+      onComplete: () => {
+        removeObject(mesh);
+        nodeMeshes.delete(childId);
+        pending -= 1;
+        if (pending === 0) finishRemoval();
+      },
+    });
+  }
 }
 
 window.resetBubbles = resetBubbles;
