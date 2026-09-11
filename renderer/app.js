@@ -84,36 +84,48 @@ function buildCanvasError(message) {
   return wrap;
 }
 
+// Estado compartido entre refreshAll (carga la lista) y queryServer (curl bajo
+// demanda al hacer doble clic): que servidores ya se consultaron y cuales
+// estan consultandose ahora mismo.
+let knownServers = [];
+const domainsById = new Map();
+const loadingIds = new Set();
+
+function renderSidebar() {
+  renderServerList(document.getElementById('server-list'), knownServers, domainsById, loadingIds, queryServer);
+  renderStatus(knownServers, [...domainsById.values()]);
+}
+
+// Curl de un solo servidor: se dispara al doble clic en el sidebar, no al
+// cargar la app, para no obligar a esperar por servidores que no interesan.
+async function queryServer(server) {
+  if (loadingIds.has(server.id)) return;
+  const root = document.getElementById('bubbles-root');
+  if (!root.querySelector('.bubbles-canvas')) resetBubbles(root);
+  loadingIds.add(server.id);
+  renderSidebar();
+  try {
+    const entry = await fetchJSON(`/servers/${server.id}/domains`);
+    domainsById.set(entry.server_id, entry);
+    addServerBubble(root, entry);
+  } finally {
+    loadingIds.delete(server.id);
+    renderSidebar();
+  }
+}
+
 async function refreshAll() {
   const root = document.getElementById('bubbles-root');
   btnRefresh.dataset.state = 'loading';
   const endLoading = beginCanvasLoading(root);
-  const list = document.getElementById('server-list');
   try {
-    const servers = await fetchJSON('/servers');
-    renderServerList(list, servers, new Map());
+    knownServers = await fetchJSON('/servers');
+    domainsById.clear();
+    renderSidebar();
     await endLoading();
 
-    if (servers.length === 0) {
-      emptyBubbles(root);
-      renderStatus(servers, []);
-      delete btnRefresh.dataset.state;
-      return;
-    }
-
-    // Un curl por servidor, uno a la vez: cada burbuja aparece en el lienzo en
-    // cuanto su servidor responde, en vez de esperar vacio al mas lento.
-    resetBubbles(root);
-    const domainsById = new Map();
-    const domains = [];
-    for (const server of servers) {
-      const entry = await fetchJSON(`/servers/${server.id}/domains`);
-      domains.push(entry);
-      domainsById.set(entry.server_id, entry);
-      addServerBubble(root, entry);
-      renderServerList(list, servers, domainsById);
-      renderStatus(servers, domains);
-    }
+    if (knownServers.length === 0) emptyBubbles(root);
+    else welcomeBubbles(root);
     delete btnRefresh.dataset.state;
   } catch (err) {
     await endLoading();

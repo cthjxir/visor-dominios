@@ -411,7 +411,27 @@ function emptyBubbles(root) {
   nodesById = new Map();
   clearScene();
   root.textContent = '';
-  root.appendChild(buildEmptyState());
+  root.appendChild(buildEmptyState({
+    title: 'Todavía no hay nada que mapear',
+    text: 'Registra un servidor de Virtualmin con «Nuevo servidor» y sus dominios aparecerán aquí como un mapa que puedes reordenar.',
+  }));
+}
+
+// Se muestra al abrir la app cuando ya hay servidores guardados pero ninguno
+// se consulto todavia: explica los dos gestos (doble clic / clic derecho)
+// en vez de dejar el lienzo en blanco sin pista de que hacer.
+function welcomeBubbles(root) {
+  nodesById = new Map();
+  clearScene();
+  root.textContent = '';
+  root.appendChild(buildEmptyState({
+    title: 'Elige un servidor para empezar',
+    text: 'Sus dominios no se consultan solos: haz doble clic en un servidor de la izquierda, o clic derecho → Conectar, y sus burbujas aparecerán aquí.',
+    hints: [
+      { icon: DBLCLICK_ICON_SVG, label: 'Doble clic' },
+      { icon: RIGHTCLICK_ICON_SVG, label: 'Clic derecho → Conectar' },
+    ],
+  }));
 }
 
 // Agrega los dominios de un solo servidor al lienzo ya abierto por
@@ -439,16 +459,44 @@ function addServerBubble(root, server) {
   if (viewMode === 'list') renderListView();
 }
 
-function buildEmptyState() {
+const EMPTY_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" '
+  + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="5" r="3"/>'
+  + '<circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/>'
+  + '<path d="M12 8v5M9.5 17l-2-3M14.5 17l2-3"/></svg>';
+const DBLCLICK_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" '
+  + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 12V6a3 3 0 0 1 6 0v6"/>'
+  + '<path d="M9 12v3a3 3 0 0 0 6 0v-3"/><path d="M9 12H6M18 12h-3"/></svg>';
+const RIGHTCLICK_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" '
+  + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3a6 6 0 0 1 6 6v6a6 6 0 0 1-6 6H9v-9a3 3 0 0 1 3-3h4"/>'
+  + '<path d="M13 3v6h6"/></svg>';
+
+function buildEmptyState({ title, text, hints = [] }) {
   const wrap = document.createElement('div');
   wrap.className = 'canvas__empty';
-  const title = document.createElement('p');
-  title.className = 'canvas__empty-title';
-  title.textContent = 'Todavía no hay nada que mapear';
-  const text = document.createElement('p');
-  text.className = 'canvas__empty-text';
-  text.textContent = 'Registra un servidor de Virtualmin con «Nuevo servidor» y sus dominios aparecerán aquí como un mapa que puedes reordenar.';
-  wrap.append(title, text);
+  const icon = document.createElement('span');
+  icon.className = 'canvas__empty-icon';
+  icon.innerHTML = EMPTY_ICON_SVG;
+  const titleEl = document.createElement('p');
+  titleEl.className = 'canvas__empty-title';
+  titleEl.textContent = title;
+  const textEl = document.createElement('p');
+  textEl.className = 'canvas__empty-text';
+  textEl.textContent = text;
+  wrap.append(icon, titleEl, textEl);
+
+  if (hints.length > 0) {
+    const list = document.createElement('div');
+    list.className = 'canvas__empty-hints';
+    for (const hint of hints) {
+      const pill = document.createElement('span');
+      pill.className = 'canvas__empty-hint';
+      const hintIcon = document.createElement('span');
+      hintIcon.innerHTML = hint.icon;
+      pill.append(hintIcon, hint.label);
+      list.appendChild(pill);
+    }
+    wrap.appendChild(list);
+  }
   return wrap;
 }
 
@@ -803,7 +851,10 @@ function renderListView() {
 
   const roots = [...nodesById.values()].filter((node) => node.type !== 'child');
   if (roots.length === 0) {
-    listBox.appendChild(buildEmptyState());
+    listBox.appendChild(buildEmptyState({
+      title: 'Todavía no hay nada que listar',
+      text: 'Doble clic (o clic derecho → Conectar) en un servidor de la izquierda para traer sus dominios aquí.',
+    }));
     return;
   }
 
@@ -983,6 +1034,7 @@ function formatDetailValue(value) {
 
 window.resetBubbles = resetBubbles;
 window.emptyBubbles = emptyBubbles;
+window.welcomeBubbles = welcomeBubbles;
 window.addServerBubble = addServerBubble;
 window.appendBreakable = appendBreakable;
 window.setPanMode = setPanMode;

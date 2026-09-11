@@ -17,7 +17,9 @@ function countDomains(entry) {
   return { parents, children };
 }
 
-function renderServerList(container, servers, domainsById) {
+// Doble click deja lanzar el curl de un servidor puntual; editar se movio al
+// clic derecho para no competir con ese gesto (ver openServerContextMenu).
+function renderServerList(container, servers, domainsById, loadingIds, onQuery) {
   container.textContent = '';
 
   if (servers.length === 0) {
@@ -29,8 +31,8 @@ function renderServerList(container, servers, domainsById) {
   }
 
   for (const server of servers) {
-    // Sin entrada todavia = consulta en curso; con entrada y error = caido.
-    const pending = !domainsById.has(server.id);
+    const loading = loadingIds.has(server.id);
+    const queried = domainsById.has(server.id);
     const entry = domainsById.get(server.id);
     const counts = countDomains(entry);
 
@@ -38,9 +40,10 @@ function renderServerList(container, servers, domainsById) {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'server';
-    if (pending) button.classList.add('server--pending');
+    if (loading) button.classList.add('server--pending');
+    else if (!queried) button.classList.add('server--unqueried');
     else if (!counts) button.classList.add('server--down');
-    button.setAttribute('aria-label', `Editar ${server.alias}`);
+    button.setAttribute('aria-label', `${server.alias} — doble clic para consultar, clic derecho para editar`);
 
     const state = document.createElement('span');
     state.className = 'server__state';
@@ -66,7 +69,8 @@ function renderServerList(container, servers, domainsById) {
 
     const meta = document.createElement('span');
     meta.className = 'server__meta';
-    if (pending) meta.textContent = 'consultando…';
+    if (loading) meta.textContent = 'consultando…';
+    else if (!queried) meta.textContent = 'doble clic para consultar';
     else if (counts) {
       meta.textContent = `${plural(counts.parents, 'dominio', 'dominios')} · ${plural(counts.children, 'subdominio', 'subdominios')}`;
     } else {
@@ -76,10 +80,85 @@ function renderServerList(container, servers, domainsById) {
 
     body.append(alias, host, meta);
     button.append(state, body);
-    button.addEventListener('click', () => openServerDialogForEdit(server));
+    button.addEventListener('dblclick', () => onQuery(server));
+    button.addEventListener('contextmenu', (event) => {
+      event.preventDefault();
+      openServerContextMenu(event.clientX, event.clientY, server, { queried, onQuery });
+    });
     item.appendChild(button);
     container.appendChild(item);
   }
+}
+
+const EDIT_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+  + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.83 2.83 0 0 1 4 4L7 21l-4 1 1-4Z"/></svg>';
+const CONNECT_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+  + 'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14a8 8 0 0 1 16 0"/>'
+  + '<path d="M1 10a12 12 0 0 1 22 0"/><line x1="12" y1="18" x2="12" y2="22"/></svg>';
+
+function buildMenuItem(iconSvg, label, onClick) {
+  const item = document.createElement('button');
+  item.type = 'button';
+  item.className = 'server-context-menu__item';
+  item.innerHTML = iconSvg;
+  const span = document.createElement('span');
+  span.textContent = label;
+  item.appendChild(span);
+  item.addEventListener('click', onClick);
+  return item;
+}
+
+// Menu contextual: Conectar (solo si el servidor aun no se consulto) y
+// Editar, en la posicion del clic derecho. Se cierra solo al elegir, perder
+// foco o presionar Escape.
+let closeServerContextMenu = () => {};
+function openServerContextMenu(x, y, server, { queried, onQuery } = {}) {
+  closeServerContextMenu();
+
+  const menu = document.createElement('div');
+  menu.className = 'server-context-menu';
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+
+  if (!queried) {
+    menu.appendChild(buildMenuItem(CONNECT_ICON_SVG, 'Conectar', () => {
+      close();
+      onQuery(server);
+    }));
+  }
+  const editItem = buildMenuItem(EDIT_ICON_SVG, 'Editar', () => {
+    close();
+    openServerDialogForEdit(server);
+  });
+  menu.appendChild(editItem);
+  document.body.appendChild(menu);
+
+  // Se posiciona primero fuera de pantalla si hace falta (el menu no puede
+  // salirse del viewport hacia la derecha/abajo del clic), y recien entonces
+  // se anima la entrada, ya con su tamano y lugar final definitivos.
+  const rect = menu.getBoundingClientRect();
+  const maxLeft = window.innerWidth - rect.width - 8;
+  const maxTop = window.innerHeight - rect.height - 8;
+  if (rect.left > maxLeft) menu.style.left = `${Math.max(8, maxLeft)}px`;
+  if (rect.top > maxTop) menu.style.top = `${Math.max(8, maxTop)}px`;
+  requestAnimationFrame(() => menu.classList.add('is-open'));
+  menu.querySelector('.server-context-menu__item').focus();
+
+  function close() {
+    menu.remove();
+    document.removeEventListener('pointerdown', onOutside, true);
+    document.removeEventListener('keydown', onKey, true);
+    closeServerContextMenu = () => {};
+  }
+  function onOutside(event) {
+    if (!menu.contains(event.target)) close();
+  }
+  function onKey(event) {
+    if (event.key === 'Escape') close();
+  }
+  document.addEventListener('pointerdown', onOutside, true);
+  document.addEventListener('keydown', onKey, true);
+  closeServerContextMenu = close;
 }
 
 function setTestResult(message, state) {
